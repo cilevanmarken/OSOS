@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"C:\\\\Users\\\\cilev\\\\Documents\\\\apps\\\\OmgekeerdeSupermarktOS\")",
+      "Bash(npm --version)",
+      "Bash(npx next *)",
+      "Bash(curl -s -o /dev/null -w \"GET /  -> %{http_code}\\\\n\" http://localhost:3030/)",
+      "Bash(curl -s -o /dev/null -w \"GET /search  -> %{http_code}\\\\n\" http://localhost:3030/search)",
+      "Bash(curl -s -o /dev/null -w \"GET /scan  -> %{http_code}\\\\n\" http://localhost:3030/scan)",
+      "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" http://localhost:3030/api/customers/TESTID123)",
+      "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST http://localhost:3030/api/customers -H \"content-type: application/json\" -d '{\"id\":\"TESTID123\",\"voornaam\":\"Jan\",\"achternaam\":\"Janssen\",\"postcode\":\"1234 AB\",\"idVerified\":true,\"notes\":\"smoke test\",\"visit\":{\"day\":\"Woensdag\",\"products\":7,\"oil\":true}}')",
+      "Bash(curl -s -w \"\\\\nHTTP %{http_code}\\\\n\" -X POST http://localhost:3030/api/visits -H \"content-type: application/json\" -d '{\"id\":\"TESTID123\",\"day\":\"Donderdag\",\"products\":3,\"oil\":false,\"override\":true}')",
+      "Bash(node -e \"const X=require\\('xlsx'\\);const wb=X.readFile\\('C:/Users/cilev/Documents/apps/OmgekeerdeSupermarktOS/data/klanten.xlsx'\\);const ws=wb.Sheets['klanten registratie'];const aoa=X.utils.sheet_to_json\\(ws,{header:1,defval:''}\\);console.log\\('Sheets:', wb.SheetNames\\);console.log\\('Headers:', aoa[0]\\);console.log\\('Row 1:', aoa[1]\\);\")",
+      "Bash(npm run *)",
+      "Bash(curl *)",
+      "Bash(node -e ' *)",
+      "Bash(npx tsc *)"
+    ]
+  }
+}
