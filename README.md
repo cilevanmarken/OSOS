@@ -35,6 +35,8 @@ The app reads and writes one Google Spreadsheet through the Google Sheets API.
   `\n` newlines, wrapped in double quotes).
 - `GOOGLE_SHEET_ID` — the ID in the sheet URL
   (`.../spreadsheets/d/<ID>/edit`).
+- `APP_PASSWORD` — the shared password that gates the whole app (see
+  [Toegang](#toegang-wachtwoord)).
 
 > ⚠️ Never commit the JSON key or `.env.local`. If a key has been pasted or
 > shared anywhere, rotate it in the Cloud Console.
@@ -55,6 +57,19 @@ Seed demo data into the configured sheet (overwrites both tabs):
 ```bash
 npm run seed
 ```
+
+## Toegang (wachtwoord)
+
+De hele app zit achter één gedeeld wachtwoord (`APP_PASSWORD`). Wie de URL
+opent komt eerst op `/login`; na het juiste wachtwoord wordt een `httpOnly`
+sessie-cookie gezet (30 dagen geldig). Een middleware beschermt alle routes —
+ook de API — zodat de klantgegevens niet zonder inloggen op te vragen zijn.
+
+- Stel `APP_PASSWORD` in als env-var (lokaal in `.env.local`, in productie bij
+  de hosting-omgeving). Zonder deze waarde kan niemand inloggen.
+- Het wachtwoord **wijzigen verloopt automatisch alle bestaande sessies**: de
+  sessie-cookie is afgeleid van het wachtwoord.
+- Uitloggen kan via de link op het startscherm.
 
 ## Bezoekregels
 

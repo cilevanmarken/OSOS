@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import LogoutButton from "./LogoutButton";
 
 export default function Home() {
   return (
@@ -26,7 +27,7 @@ export default function Home() {
       </div>
 
       <footer className="mt-10 text-center text-xs text-gray-400">
-        Vrijwilligers-app · Week {currentWeekString()}
+        Vrijwilligers-app · Week {currentWeekString()} · <LogoutButton />
       </footer>
     </main>
   );
