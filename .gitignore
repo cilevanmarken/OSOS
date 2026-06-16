@@ -2,6 +2,7 @@ node_modules
 .next
 out
 .env*
+!.env.local.example
 *.log
 .DS_Store
 

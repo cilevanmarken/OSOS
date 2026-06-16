@@ -62,12 +62,17 @@ export default function SearchClient() {
       )}
 
       {!loading && q.trim().length >= 2 && results.length === 0 && (
-        <p className="text-center text-gray-500 mt-6">Geen klant gevonden.</p>
+        <div className="mt-6 text-center">
+          <p className="text-gray-500 mb-4">Geen klant gevonden.</p>
+          <Link href="/register" className="btn-primary w-full">
+            Nieuwe klant toevoegen
+          </Link>
+        </div>
       )}
 
       <ul className="space-y-2">
         {results.map((c) => {
-          const href = c.visitThisWeek
+          const href = c.lockedThisWeek
             ? `/already-visited/${encodeURIComponent(c.id)}`
             : c.groepId
             ? `/check-in-groep/${encodeURIComponent(c.id)}`
@@ -87,7 +92,7 @@ export default function SearchClient() {
                     {c.groepId ? ` · Groep ${c.groepId}` : ""} · ID {c.id}
                   </p>
                 </div>
-                {c.visitThisWeek && (
+                {c.lockedThisWeek && (
                   <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800 font-semibold">
                     Al geweest
                   </span>

@@ -3,16 +3,25 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import NoteBanner from "@/components/NoteBanner";
 import type { VisitDay } from "@/lib/week";
+
+const ROBIN_NOTE =
+  "Robin zou de nieuwe klant graag willen ontmoeten! Roep haar er even bij.";
 
 export default function RegisterForm({
   id,
   defaultDay,
 }: {
-  id: string;
+  // The known stadspas ID (scan flow). When omitted (zoek-op-naam flow) the
+  // volunteer can enter the stadspas ID by hand, or leave it blank for a
+  // customer without a stadspas — the server then generates a unique ID.
+  id?: string;
   defaultDay: VisitDay;
 }) {
   const router = useRouter();
+  const idKnown = id != null;
+  const [stadpasId, setStadpasId] = useState(id ?? "");
   const [voornaam, setVoornaam] = useState("");
   const [achternaam, setAchternaam] = useState("");
   const [postcode, setPostcode] = useState("");
@@ -44,7 +53,7 @@ export default function RegisterForm({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          id,
+          id: stadpasId.trim(),
           voornaam: voornaam.trim(),
           achternaam: achternaam.trim(),
           postcode: postcode.trim(),
@@ -54,12 +63,14 @@ export default function RegisterForm({
         }),
       });
       if (res.ok) {
-        router.push(`/done/${encodeURIComponent(id)}?new=1`);
+        const data = await res.json().catch(() => ({}));
+        const newId = data?.customer?.id ?? stadpasId.trim();
+        router.push(`/done/${encodeURIComponent(newId)}?new=1`);
         return;
       }
       const data = await res.json().catch(() => ({}));
       if (data?.error === "CUSTOMER_EXISTS") {
-        router.push(`/check-in/${encodeURIComponent(id)}`);
+        router.push(`/check-in/${encodeURIComponent(stadpasId.trim())}`);
         return;
       }
       setError("Opslaan mislukt. Probeer opnieuw.");
@@ -81,14 +92,40 @@ export default function RegisterForm({
       </header>
 
       <p className="text-sm text-gray-500 mb-5">
-        Deze stadspas is nog niet bekend. Registreer de klant en log meteen
-        het eerste bezoek.
+        {idKnown
+          ? "Deze stadspas is nog niet bekend. Registreer de klant en log meteen het eerste bezoek."
+          : "Registreer de nieuwe klant en log meteen het eerste bezoek."}
       </p>
+
+      <NoteBanner note={ROBIN_NOTE} />
 
       <form onSubmit={onSubmit} className="space-y-5">
         <div>
-          <label className="label">Stadspas ID</label>
-          <input className="input bg-gray-100 text-gray-500" value={id} readOnly />
+          <label className="label" htmlFor="stadpasId">Stadspas ID</label>
+          {idKnown ? (
+            <input
+              id="stadpasId"
+              className="input bg-gray-100 text-gray-500"
+              value={stadpasId}
+              readOnly
+            />
+          ) : (
+            <>
+              <input
+                id="stadpasId"
+                className="input"
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder="Laat leeg als er geen stadspas is"
+                value={stadpasId}
+                onChange={(e) => setStadpasId(e.target.value)}
+              />
+              <p className="text-sm text-gray-500 mt-1">
+                Geen stadspas? Laat dit veld leeg — er wordt automatisch een
+                uniek ID aangemaakt.
+              </p>
+            </>
+          )}
         </div>
 
         <div>

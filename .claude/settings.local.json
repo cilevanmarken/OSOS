@@ -14,7 +14,8 @@
       "Bash(npm run *)",
       "Bash(curl *)",
       "Bash(node -e ' *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(npm install *)"
     ]
   }
 }

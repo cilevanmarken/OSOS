@@ -47,11 +47,8 @@ export default async function DonePage({
       </div>
 
       <div className="space-y-3">
-        <Link href="/scan" className="btn-primary w-full text-xl">
+        <Link href="/" className="btn-primary w-full text-xl">
           Volgende klant
-        </Link>
-        <Link href="/" className="btn-ghost w-full">
-          Naar startscherm
         </Link>
       </div>
     </main>

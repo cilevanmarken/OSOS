@@ -1,11 +1,30 @@
-import * as XLSX from "xlsx";
-import fs from "node:fs";
-import path from "node:path";
+import { sheets, auth } from "@googleapis/sheets";
 
-XLSX.set_fs(fs);
+// Seeds demo data into the Google Sheet configured via env vars.
+// Run with:  npm run seed   (loads .env.local via --env-file)
 
-const dataDir = path.join(process.cwd(), "data");
-const filePath = path.join(dataDir, "klanten.xlsx");
+const SHEET_NAME = "klanten registratie";
+const GROUP_SHEET_NAME = "groepen";
+
+const email = process.env.GOOGLE_CLIENT_EMAIL;
+const key = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+if (!email || !key || !spreadsheetId) {
+  console.error(
+    "Ontbrekende env-vars. Vereist: GOOGLE_CLIENT_EMAIL, GOOGLE_PRIVATE_KEY, GOOGLE_SHEET_ID.\n" +
+      "Maak .env.local aan (zie .env.local.example) en draai: npm run seed"
+  );
+  process.exit(1);
+}
+
+const client = sheets({
+  version: "v4",
+  auth: new auth.JWT({
+    email,
+    key,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  }),
+});
 
 function isoWeek(date = new Date()) {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -18,7 +37,6 @@ function isoWeek(date = new Date()) {
 const week = isoWeek();
 const weekCols = [`Week ${week}`, `Producten ${week}`, `Olie ${week}`];
 const baseCols = [
-  "ID",
   "Stadpas ID",
   "Voornaam",
   "Achternaam",
@@ -48,7 +66,6 @@ const customers = [
 ];
 
 const klantenRows = customers.map((c) => ({
-  "ID": c.id,
   "Stadpas ID": c.id,
   "Voornaam": c.voornaam,
   "Achternaam": c.achternaam,
@@ -62,7 +79,7 @@ const klantenRows = customers.map((c) => ({
 }));
 
 // Peter de Wit (4001) already visited this week — Anna's scan should trigger the warning.
-const peter = klantenRows.find((r) => r["ID"] === "4001");
+const peter = klantenRows.find((r) => r["Stadpas ID"] === "4001");
 peter[`Week ${week}`] = "Woensdag";
 peter[`Producten ${week}`] = 12;
 peter[`Olie ${week}`] = "Ja";
@@ -74,24 +91,37 @@ const groepenRows = [
   { "Groep ID": "G003", "Leden": "Peter de Wit, Anna de Wit", "Postcode": "1015 BC", "Notities": "" },
 ];
 
-fs.mkdirSync(dataDir, { recursive: true });
-
-if (fs.existsSync(filePath)) {
-  const ts = new Date().toISOString().replace(/[:.]/g, "-");
-  const bak = path.join(dataDir, `klanten.${ts}.bak.xlsx`);
-  fs.copyFileSync(filePath, bak);
-  console.log(`Existing data backed up to ${path.basename(bak)}`);
+function quote(title) {
+  return `'${title.replace(/'/g, "''")}'`;
 }
 
-const wb = XLSX.utils.book_new();
+async function ensureTab(title) {
+  const meta = await client.spreadsheets.get({
+    spreadsheetId,
+    fields: "sheets.properties.title",
+  });
+  const titles = (meta.data.sheets ?? []).map((s) => s.properties?.title);
+  if (titles.includes(title)) return;
+  await client.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: { requests: [{ addSheet: { properties: { title } } }] },
+  });
+}
 
-const klantenAoa = [klantenHeaders, ...klantenRows.map((r) => klantenHeaders.map((h) => r[h] ?? ""))];
-XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(klantenAoa), "klanten registratie");
+async function replaceTab(title, headers, rows) {
+  await ensureTab(title);
+  await client.spreadsheets.values.clear({ spreadsheetId, range: quote(title) });
+  const values = [headers, ...rows.map((r) => headers.map((h) => r[h] ?? ""))];
+  await client.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${quote(title)}!A1`,
+    valueInputOption: "RAW",
+    requestBody: { values },
+  });
+}
 
-const groepenAoa = [groepenHeaders, ...groepenRows.map((r) => groepenHeaders.map((h) => r[h] ?? ""))];
-XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(groepenAoa), "groepen");
-
-XLSX.writeFile(wb, filePath);
+await replaceTab(SHEET_NAME, klantenHeaders, klantenRows);
+await replaceTab(GROUP_SHEET_NAME, groepenHeaders, groepenRows);
 
 console.log(`Seeded ${customers.length} klanten and ${groepenRows.length} groepen for week ${week}.`);
 console.log("");

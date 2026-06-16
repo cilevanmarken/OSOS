@@ -31,7 +31,8 @@ export async function POST(req: Request) {
   const achternaam = (body.achternaam ?? "").trim();
   const postcode = (body.postcode ?? "").trim();
 
-  if (!id || !voornaam || !achternaam) {
+  // `id` (the stadspas ID) may be empty — a unique internal ID is generated.
+  if (!voornaam || !achternaam) {
     return NextResponse.json({ error: "MISSING_FIELDS" }, { status: 400 });
   }
 
@@ -47,7 +48,7 @@ export async function POST(req: Request) {
 
     if (body.visit) {
       const result = await logVisit({
-        id,
+        id: customer.id,
         day: body.visit.day,
         products: body.visit.products,
         oil: body.visit.oil,

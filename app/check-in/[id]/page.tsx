@@ -13,7 +13,7 @@ export default async function CheckInPage({
   const { id } = await params;
   const customer = await findCustomer(id);
   if (!customer) notFound();
-  if (customer.visitThisWeek) {
+  if (customer.lockedThisWeek) {
     redirect(`/already-visited/${encodeURIComponent(id)}`);
   }
   return <CheckInForm customer={customer} defaultDay={dayForToday()} />;

@@ -22,7 +22,7 @@ export default function GroupCheckIn({
   const otherMembers = group.members.filter((m) => m.id !== scannerId);
   const initialChecked: Record<string, boolean> = {};
   for (const m of otherMembers) {
-    initialChecked[m.id] = !m.visitThisWeek;
+    initialChecked[m.id] = !m.countsThisWeek;
   }
   const [checked, setChecked] = useState<Record<string, boolean>>(initialChecked);
 
@@ -32,7 +32,7 @@ export default function GroupCheckIn({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>("");
 
-  const visitedMembers = group.members.filter((m) => m.visitThisWeek);
+  const visitedMembers = group.members.filter((m) => m.countsThisWeek);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,7 +43,7 @@ export default function GroupCheckIn({
     }
     const memberIds = [
       scannerId,
-      ...otherMembers.filter((m) => checked[m.id] && !m.visitThisWeek).map((m) => m.id),
+      ...otherMembers.filter((m) => checked[m.id] && !m.countsThisWeek).map((m) => m.id),
     ];
     setSubmitting(true);
     setError("");
@@ -130,7 +130,7 @@ export default function GroupCheckIn({
             <label className="label">Voor wie shopt deze klant?</label>
             <ul className="space-y-2">
               {otherMembers.map((m) => {
-                const visited = !!m.visitThisWeek;
+                const visited = m.countsThisWeek;
                 return (
                   <li key={m.id}>
                     <label

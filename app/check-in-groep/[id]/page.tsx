@@ -14,7 +14,7 @@ export default async function GroupCheckInPage({
   const result = await findCustomerAndGroup(id);
   if (!result) notFound();
   const { customer, group } = result;
-  if (customer.visitThisWeek) {
+  if (customer.lockedThisWeek) {
     redirect(`/already-visited/${encodeURIComponent(id)}`);
   }
   if (!group) {

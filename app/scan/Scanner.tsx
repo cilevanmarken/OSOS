@@ -103,7 +103,7 @@ export default function Scanner() {
       }
       const data = await res.json();
       const customer = data?.customer;
-      if (customer?.visitThisWeek) {
+      if (customer?.lockedThisWeek) {
         router.push(`/already-visited/${encodeURIComponent(trimmed)}`);
       } else if (customer?.groepId) {
         router.push(`/check-in-groep/${encodeURIComponent(trimmed)}`);

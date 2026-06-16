@@ -1,15 +1,10 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
-import * as XLSX from "xlsx";
+import { readGrid, writeGrid, type Cell } from "./sheets";
 import { isoWeek, type VisitDay } from "./week";
 
 export const SHEET_NAME = "klanten registratie";
 export const GROUP_SHEET_NAME = "groepen";
-const DATA_DIR = path.join(process.cwd(), "data");
-const FILE_PATH = path.join(DATA_DIR, "klanten.xlsx");
 
 const BASE_COLUMNS = [
-  "ID",
   "Stadpas ID",
   "Voornaam",
   "Achternaam",
@@ -22,8 +17,9 @@ const BASE_COLUMNS = [
 const GROUP_COLUMNS = ["Groep ID", "Leden", "Postcode", "Notities"] as const;
 
 export type Customer = {
+  // The stadspas ID — the single identifier column ("Stadpas ID") in the
+  // sheet. Customers without a stadspas get an auto-generated "ZP#" id.
   id: string;
-  stadpasId: string;
   voornaam: string;
   achternaam: string;
   postcode: string;
@@ -31,6 +27,10 @@ export type Customer = {
   idVerified: boolean;
   notes: string;
   visitThisWeek?: VisitRecord;
+  // True when this week's visit "counts" and the customer may NOT come again.
+  // A visit with 0 products and no oil does not count — the customer is free
+  // to return later in the same week.
+  lockedThisWeek: boolean;
 };
 
 export type GroupMember = {
@@ -40,6 +40,9 @@ export type GroupMember = {
   fullName: string;
   visitThisWeek?: VisitRecord;
   oilThisWeek: boolean;
+  // True when this member's visit counts (products > 0 or oil). A 0-product,
+  // no-oil visit does not count, so the member may still be checked in.
+  countsThisWeek: boolean;
 };
 
 export type GroupView = {
@@ -61,7 +64,8 @@ export type VisitRecord = {
 
 export type Row = Record<string, string | number | boolean | null | undefined>;
 
-// Single-writer mutex so concurrent requests don't corrupt the workbook.
+// Single-writer mutex so concurrent requests don't interleave read-modify-write
+// cycles on the spreadsheet within this server instance.
 let queue: Promise<unknown> = Promise.resolve();
 function withLock<T>(fn: () => Promise<T>): Promise<T> {
   const run = queue.then(fn, fn);
@@ -69,51 +73,13 @@ function withLock<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-async function ensureDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-}
-
-async function loadWorkbook(): Promise<XLSX.WorkBook> {
-  await ensureDir();
-  try {
-    const buf = await fs.readFile(FILE_PATH);
-    return XLSX.read(buf, { type: "buffer" });
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.aoa_to_sheet([BASE_COLUMNS as unknown as string[]]);
-      XLSX.utils.book_append_sheet(wb, ws, SHEET_NAME);
-      return wb;
-    }
-    throw err;
-  }
-}
-
-async function saveWorkbook(wb: XLSX.WorkBook) {
-  await ensureDir();
-  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
-  // Atomic write: write to temp then rename.
-  const tmp = FILE_PATH + ".tmp";
-  await fs.writeFile(tmp, buf);
-  await fs.rename(tmp, FILE_PATH);
-}
-
-function getSheet(wb: XLSX.WorkBook): XLSX.WorkSheet {
-  let ws = wb.Sheets[SHEET_NAME];
-  if (!ws) {
-    ws = XLSX.utils.aoa_to_sheet([BASE_COLUMNS as unknown as string[]]);
-    XLSX.utils.book_append_sheet(wb, ws, SHEET_NAME);
-  }
-  return ws;
-}
-
-function sheetToRows(ws: XLSX.WorkSheet): { headers: string[]; rows: Row[] } {
-  const aoa = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "" });
-  const headers = (aoa[0] ?? []).map((h) => String(h ?? ""));
+// Convert a raw cell grid (header row + data rows) into keyed rows.
+function gridToRows(values: Cell[][]): { headers: string[]; rows: Row[] } {
+  const headers = (values[0] ?? []).map((h) => String(h ?? ""));
   const rows: Row[] = [];
-  for (let i = 1; i < aoa.length; i++) {
-    const arr = aoa[i] as unknown[];
-    if (!arr || arr.every((v) => v === "" || v == null)) continue;
+  for (let i = 1; i < values.length; i++) {
+    const arr = values[i] ?? [];
+    if (!arr.length || arr.every((v) => v === "" || v == null)) continue;
     const row: Row = {};
     for (let c = 0; c < headers.length; c++) {
       row[headers[c]] = (arr[c] as Row[string]) ?? "";
@@ -123,12 +89,25 @@ function sheetToRows(ws: XLSX.WorkSheet): { headers: string[]; rows: Row[] } {
   return { headers, rows };
 }
 
-function rowsToSheet(headers: string[], rows: Row[]): XLSX.WorkSheet {
-  const aoa: unknown[][] = [headers];
+function rowsToGrid(headers: string[], rows: Row[]): Cell[][] {
+  const grid: Cell[][] = [headers];
   for (const row of rows) {
-    aoa.push(headers.map((h) => (row[h] === undefined ? "" : row[h])));
+    grid.push(
+      headers.map((h) => {
+        const v = row[h];
+        return v === undefined || v === null ? "" : v;
+      })
+    );
   }
-  return XLSX.utils.aoa_to_sheet(aoa);
+  return grid;
+}
+
+async function loadRows(title: string): Promise<{ headers: string[]; rows: Row[] }> {
+  return gridToRows(await readGrid(title));
+}
+
+async function saveRows(title: string, headers: string[], rows: Row[]): Promise<void> {
+  await writeGrid(title, rowsToGrid(headers, rows));
 }
 
 function ensureWeekColumns(headers: string[], week: number): string[] {
@@ -138,6 +117,32 @@ function ensureWeekColumns(headers: string[], week: number): string[] {
     if (!next.includes(c)) next.push(c);
   }
   return next;
+}
+
+// A visit "counts" — i.e. uses up the customer's weekly slot — only when the
+// customer actually received something: at least one product or an oil
+// voucher. A 0-product, no-oil visit is effectively a no-op, so the customer
+// may come back later this week.
+function visitCounts(visit: VisitRecord | undefined): boolean {
+  return !!visit && ((visit.products ?? 0) > 0 || visit.oil);
+}
+
+// Whether a groep has used its weekly slot: any member took products, or the
+// shared oil voucher was claimed (oil is propagated across the whole groep).
+function groupCounts(allRows: Row[], groepId: string, week: number): boolean {
+  return allRows.some(
+    (r) =>
+      String(r["Groep ID"] ?? "").trim() === groepId &&
+      (Number(r[`Producten ${week}`] || 0) > 0 ||
+        String(r[`Olie ${week}`] ?? "").toLowerCase() === "ja")
+  );
+}
+
+// Whether a customer is locked out for the week. Groep members share the
+// groep's slot; solo customers use their own visit.
+function computeLocked(customer: Customer, allRows: Row[], week: number): boolean {
+  if (customer.groepId) return groupCounts(allRows, customer.groepId, week);
+  return visitCounts(customer.visitThisWeek);
 }
 
 function rowToCustomer(row: Row, week: number): Customer {
@@ -161,8 +166,7 @@ function rowToCustomer(row: Row, week: number): Customer {
     : undefined;
 
   return {
-    id: String(row["ID"] ?? "").trim(),
-    stadpasId: String(row["Stadpas ID"] ?? "").trim(),
+    id: String(row["Stadpas ID"] ?? "").trim(),
     voornaam: String(row["Voornaam"] ?? "").trim(),
     achternaam: String(row["Achternaam"] ?? "").trim(),
     postcode: String(row["Postcode"] ?? "").trim(),
@@ -170,16 +174,10 @@ function rowToCustomer(row: Row, week: number): Customer {
     idVerified: String(row["ID gecontroleerd"] ?? "").toLowerCase() === "ja",
     notes: String(row["Notities"] ?? ""),
     visitThisWeek: visit,
+    // Solo default; group members are re-evaluated against the whole groep
+    // wherever the full row set is available (findCustomer, searchCustomers…).
+    lockedThisWeek: visitCounts(visit),
   };
-}
-
-function getGroepenSheet(wb: XLSX.WorkBook): XLSX.WorkSheet {
-  let ws = wb.Sheets[GROUP_SHEET_NAME];
-  if (!ws) {
-    ws = XLSX.utils.aoa_to_sheet([GROUP_COLUMNS as unknown as string[]]);
-    XLSX.utils.book_append_sheet(wb, ws, GROUP_SHEET_NAME);
-  }
-  return ws;
 }
 
 function rowToGroupMember(row: Row, week: number): GroupMember {
@@ -193,6 +191,7 @@ function rowToGroupMember(row: Row, week: number): GroupMember {
     fullName: `${c.voornaam} ${c.achternaam}`.trim(),
     visitThisWeek: c.visitThisWeek,
     oilThisWeek,
+    countsThisWeek: (c.visitThisWeek?.products ?? 0) > 0 || oilThisWeek,
   };
 }
 
@@ -227,18 +226,21 @@ function computeGroupView(
     members,
     oilUsedThisWeek: !!anyOilMember,
     oilRecipient,
-    hasAnyVisitThisWeek: members.some((m) => m.visitThisWeek != null),
+    // Only counting visits (products > 0 or oil) lock the groep — a 0-product,
+    // no-oil visit lets the groep return this week.
+    hasAnyVisitThisWeek: members.some((m) => m.countsThisWeek),
   };
 }
 
 export async function findCustomer(id: string): Promise<Customer | null> {
   return withLock(async () => {
-    const wb = await loadWorkbook();
-    const ws = getSheet(wb);
-    const { rows } = sheetToRows(ws);
+    const { rows } = await loadRows(SHEET_NAME);
     const week = isoWeek();
-    const match = rows.find((r) => String(r["ID"] ?? "").trim() === id.trim());
-    return match ? rowToCustomer(match, week) : null;
+    const match = rows.find((r) => String(r["Stadpas ID"] ?? "").trim() === id.trim());
+    if (!match) return null;
+    const customer = rowToCustomer(match, week);
+    customer.lockedThisWeek = computeLocked(customer, rows, week);
+    return customer;
   });
 }
 
@@ -246,9 +248,7 @@ export async function searchCustomers(query: string): Promise<Customer[]> {
   const q = query.trim().toLowerCase();
   if (!q) return [];
   return withLock(async () => {
-    const wb = await loadWorkbook();
-    const ws = getSheet(wb);
-    const { rows } = sheetToRows(ws);
+    const { rows } = await loadRows(SHEET_NAME);
     const week = isoWeek();
     const matches: Customer[] = [];
     for (const r of rows) {
@@ -256,7 +256,9 @@ export async function searchCustomers(query: string): Promise<Customer[]> {
       const last = String(r["Achternaam"] ?? "").toLowerCase();
       const full = `${first} ${last}`.trim();
       if (first.includes(q) || last.includes(q) || full.includes(q)) {
-        matches.push(rowToCustomer(r, week));
+        const customer = rowToCustomer(r, week);
+        customer.lockedThisWeek = computeLocked(customer, rows, week);
+        matches.push(customer);
       }
       if (matches.length >= 25) break;
     }
@@ -265,6 +267,8 @@ export async function searchCustomers(query: string): Promise<Customer[]> {
 }
 
 export type CreateCustomerInput = {
+  // The stadspas ID. Leave empty when the customer has no stadspas — a unique
+  // internal ID is then generated automatically.
   id: string;
   voornaam: string;
   achternaam: string;
@@ -273,13 +277,24 @@ export type CreateCustomerInput = {
   notes?: string;
 };
 
+// Generate a unique internal ID for customers without a stadspas. The "ZP"
+// prefix (zonder pas) keeps it from colliding with numeric stadspas barcodes.
+function generateUniqueId(rows: Row[]): string {
+  const existing = new Set(rows.map((r) => String(r["Stadpas ID"] ?? "").trim()));
+  let n = 1;
+  while (existing.has(`ZP${n}`)) n++;
+  return `ZP${n}`;
+}
+
 export async function createCustomer(input: CreateCustomerInput): Promise<Customer> {
   return withLock(async () => {
-    const wb = await loadWorkbook();
-    const ws = getSheet(wb);
-    const { headers, rows } = sheetToRows(ws);
+    const { headers, rows } = await loadRows(SHEET_NAME);
 
-    if (rows.some((r) => String(r["ID"] ?? "").trim() === input.id.trim())) {
+    const stadpas = input.id.trim();
+    let id = stadpas;
+    if (!id) {
+      id = generateUniqueId(rows);
+    } else if (rows.some((r) => String(r["Stadpas ID"] ?? "").trim() === id)) {
       throw new Error("CUSTOMER_EXISTS");
     }
 
@@ -289,8 +304,7 @@ export async function createCustomer(input: CreateCustomerInput): Promise<Custom
     }
 
     const newRow: Row = {
-      ID: input.id,
-      "Stadpas ID": input.id,
+      "Stadpas ID": id,
       Voornaam: input.voornaam,
       Achternaam: input.achternaam,
       Postcode: input.postcode,
@@ -299,8 +313,7 @@ export async function createCustomer(input: CreateCustomerInput): Promise<Custom
     };
 
     const nextRows = [...rows, newRow];
-    wb.Sheets[SHEET_NAME] = rowsToSheet(finalHeaders, nextRows);
-    await saveWorkbook(wb);
+    await saveRows(SHEET_NAME, finalHeaders, nextRows);
     return rowToCustomer(newRow, isoWeek());
   });
 }
@@ -326,22 +339,27 @@ export type LogVisitResult =
 
 export async function logVisit(input: LogVisitInput): Promise<LogVisitResult> {
   return withLock(async () => {
-    const wb = await loadWorkbook();
-    const ws = getSheet(wb);
-    const { headers, rows } = sheetToRows(ws);
+    const { headers, rows } = await loadRows(SHEET_NAME);
     const week = isoWeek();
 
-    const idx = rows.findIndex((r) => String(r["ID"] ?? "").trim() === input.id.trim());
+    const idx = rows.findIndex((r) => String(r["Stadpas ID"] ?? "").trim() === input.id.trim());
     if (idx === -1) return { ok: false, reason: "NOT_FOUND" } as const;
 
     const row = rows[idx];
     const existingCustomer = rowToCustomer(row, week);
 
-    if (existingCustomer.visitThisWeek && !input.override) {
+    // Only a counting visit (products > 0 or oil) blocks a re-check this week;
+    // a previous 0-product, no-oil visit may simply be overwritten.
+    if (computeLocked(existingCustomer, rows, week) && !input.override) {
       return {
         ok: false,
         reason: "ALREADY_VISITED",
-        existing: existingCustomer.visitThisWeek,
+        existing: existingCustomer.visitThisWeek ?? {
+          week,
+          day: "",
+          products: null,
+          oil: false,
+        },
         customer: existingCustomer,
       } as const;
     }
@@ -353,7 +371,7 @@ export async function logVisit(input: LogVisitInput): Promise<LogVisitResult> {
       const conflict = rows.find(
         (r) =>
           String(r["Groep ID"] ?? "").trim() === existingCustomer.groepId &&
-          String(r["ID"] ?? "").trim() !== existingCustomer.id &&
+          String(r["Stadpas ID"] ?? "").trim() !== existingCustomer.id &&
           String(r[`Olie ${week}`] ?? "").toLowerCase() === "ja"
       );
       if (conflict) {
@@ -387,8 +405,7 @@ export async function logVisit(input: LogVisitInput): Promise<LogVisitResult> {
       }
     }
 
-    wb.Sheets[SHEET_NAME] = rowsToSheet(finalHeaders, rows);
-    await saveWorkbook(wb);
+    await saveRows(SHEET_NAME, finalHeaders, rows);
 
     return { ok: true, customer: rowToCustomer(row, week) } as const;
   });
@@ -399,14 +416,11 @@ export async function updateNotes(
   notes: string
 ): Promise<Customer | null> {
   return withLock(async () => {
-    const wb = await loadWorkbook();
-    const ws = getSheet(wb);
-    const { headers, rows } = sheetToRows(ws);
-    const idx = rows.findIndex((r) => String(r["ID"] ?? "").trim() === id.trim());
+    const { headers, rows } = await loadRows(SHEET_NAME);
+    const idx = rows.findIndex((r) => String(r["Stadpas ID"] ?? "").trim() === id.trim());
     if (idx === -1) return null;
     rows[idx]["Notities"] = notes;
-    wb.Sheets[SHEET_NAME] = rowsToSheet(headers, rows);
-    await saveWorkbook(wb);
+    await saveRows(SHEET_NAME, headers, rows);
     return rowToCustomer(rows[idx], isoWeek());
   });
 }
@@ -415,18 +429,16 @@ export async function findCustomerAndGroup(
   id: string
 ): Promise<{ customer: Customer; group: GroupView | null } | null> {
   return withLock(async () => {
-    const wb = await loadWorkbook();
-    const klantenWs = getSheet(wb);
-    const { rows: klantenRows } = sheetToRows(klantenWs);
+    const { rows: klantenRows } = await loadRows(SHEET_NAME);
     const week = isoWeek();
     const match = klantenRows.find(
-      (r) => String(r["ID"] ?? "").trim() === id.trim()
+      (r) => String(r["Stadpas ID"] ?? "").trim() === id.trim()
     );
     if (!match) return null;
     const customer = rowToCustomer(match, week);
+    customer.lockedThisWeek = computeLocked(customer, klantenRows, week);
     if (!customer.groepId) return { customer, group: null };
-    const groepenWs = getGroepenSheet(wb);
-    const { rows: groupRows } = sheetToRows(groepenWs);
+    const { rows: groupRows } = await loadRows(GROUP_SHEET_NAME);
     const groepRow =
       groupRows.find(
         (r) => String(r["Groep ID"] ?? "").trim() === customer.groepId
@@ -464,14 +476,12 @@ export async function logGroupVisit(
   input: LogGroupVisitInput
 ): Promise<LogGroupVisitResult> {
   return withLock(async () => {
-    const wb = await loadWorkbook();
-    const klantenWs = getSheet(wb);
-    const { headers: kHeaders, rows: klantenRows } = sheetToRows(klantenWs);
+    const { headers: kHeaders, rows: klantenRows } = await loadRows(SHEET_NAME);
     const week = isoWeek();
 
     const scannerIdTrim = input.scannerId.trim();
     const scannerIdx = klantenRows.findIndex(
-      (r) => String(r["ID"] ?? "").trim() === scannerIdTrim
+      (r) => String(r["Stadpas ID"] ?? "").trim() === scannerIdTrim
     );
     if (scannerIdx === -1) return { ok: false, reason: "NOT_FOUND" } as const;
     const groupId = String(klantenRows[scannerIdx]["Groep ID"] ?? "").trim();
@@ -507,14 +517,14 @@ export async function logGroupVisit(
     const loggedIds: string[] = [];
 
     for (const r of memberRows) {
-      const memberId = String(r["ID"] ?? "").trim();
+      const memberId = String(r["Stadpas ID"] ?? "").trim();
       if (!requested.has(memberId)) continue;
-      const existingDay = String(r[`Week ${week}`] ?? "").trim();
-      const existingProducts = r[`Producten ${week}`];
-      const hasVisit =
-        existingDay !== "" ||
-        (existingProducts !== "" && existingProducts != null);
-      if (hasVisit) continue;
+      // Skip only members whose existing visit counts (products > 0 or oil).
+      // A previous 0-product, no-oil visit can be overwritten — they may return.
+      const countsAlready =
+        Number(r[`Producten ${week}`] || 0) > 0 ||
+        String(r[`Olie ${week}`] ?? "").toLowerCase() === "ja";
+      if (countsAlready) continue;
       r[`Week ${week}`] = input.day;
       r[`Producten ${week}`] =
         memberId === scannerIdTrim ? input.products : 0;
@@ -533,11 +543,10 @@ export async function logGroupVisit(
       return { ok: false, reason: "NO_MEMBERS_TO_LOG" } as const;
     }
 
-    wb.Sheets[SHEET_NAME] = rowsToSheet(finalKHeaders, klantenRows);
+    await saveRows(SHEET_NAME, finalKHeaders, klantenRows);
 
     // Resync Leden in groepen sheet — manager-edited membership stays in sync.
-    const groepenWs = getGroepenSheet(wb);
-    const { headers: gHeaders, rows: groupRows } = sheetToRows(groepenWs);
+    const { headers: gHeaders, rows: groupRows } = await loadRows(GROUP_SHEET_NAME);
     let finalGHeaders = gHeaders;
     for (const c of GROUP_COLUMNS) {
       if (!finalGHeaders.includes(c)) finalGHeaders = [...finalGHeaders, c];
@@ -564,9 +573,7 @@ export async function logGroupVisit(
     } else {
       groupRows[groupIdx]["Leden"] = ledenStr;
     }
-    wb.Sheets[GROUP_SHEET_NAME] = rowsToSheet(finalGHeaders, groupRows);
-
-    await saveWorkbook(wb);
+    await saveRows(GROUP_SHEET_NAME, finalGHeaders, groupRows);
 
     const groepRowAfter =
       groupRows.find((r) => String(r["Groep ID"] ?? "").trim() === groupId) ??
