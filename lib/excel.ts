@@ -27,7 +27,9 @@ export type Customer = {
   idVerified: boolean;
   notes: string;
   visitThisWeek?: VisitRecord;
-  // True when this week's visit "counts" and the customer may NOT come again.
+  // True when this customer's OWN visit this week "counts" (products > 0 or
+  // oil) and they may NOT come again. Each customer has an independent weekly
+  // slot — a groep member being locked does not lock the rest of the groep.
   // A visit with 0 products and no oil does not count — the customer is free
   // to return later in the same week.
   lockedThisWeek: boolean;
@@ -127,21 +129,11 @@ function visitCounts(visit: VisitRecord | undefined): boolean {
   return !!visit && ((visit.products ?? 0) > 0 || visit.oil);
 }
 
-// Whether a groep has used its weekly slot: any member took products, or the
-// shared oil voucher was claimed (oil is propagated across the whole groep).
-function groupCounts(allRows: Row[], groepId: string, week: number): boolean {
-  return allRows.some(
-    (r) =>
-      String(r["Groep ID"] ?? "").trim() === groepId &&
-      (Number(r[`Producten ${week}`] || 0) > 0 ||
-        String(r[`Olie ${week}`] ?? "").toLowerCase() === "ja")
-  );
-}
-
-// Whether a customer is locked out for the week. Groep members share the
-// groep's slot; solo customers use their own visit.
-function computeLocked(customer: Customer, allRows: Row[], week: number): boolean {
-  if (customer.groepId) return groupCounts(allRows, customer.groepId, week);
+// Whether a customer is locked out for the week. Every customer — solo or
+// groep member — uses their OWN weekly slot. A groep member who has not shopped
+// yet may still come even if another member already did. Oil is the only
+// shared, once-per-groep resource; that cap is enforced separately at log time.
+function computeLocked(customer: Customer): boolean {
   return visitCounts(customer.visitThisWeek);
 }
 
@@ -174,8 +166,8 @@ function rowToCustomer(row: Row, week: number): Customer {
     idVerified: String(row["ID gecontroleerd"] ?? "").toLowerCase() === "ja",
     notes: String(row["Notities"] ?? ""),
     visitThisWeek: visit,
-    // Solo default; group members are re-evaluated against the whole groep
-    // wherever the full row set is available (findCustomer, searchCustomers…).
+    // Locked purely on this customer's own visit — groep membership no longer
+    // affects whether an individual may shop (only the oil voucher is shared).
     lockedThisWeek: visitCounts(visit),
   };
 }
@@ -239,7 +231,7 @@ export async function findCustomer(id: string): Promise<Customer | null> {
     const match = rows.find((r) => String(r["Stadpas ID"] ?? "").trim() === id.trim());
     if (!match) return null;
     const customer = rowToCustomer(match, week);
-    customer.lockedThisWeek = computeLocked(customer, rows, week);
+    customer.lockedThisWeek = computeLocked(customer);
     return customer;
   });
 }
@@ -257,7 +249,7 @@ export async function searchCustomers(query: string): Promise<Customer[]> {
       const full = `${first} ${last}`.trim();
       if (first.includes(q) || last.includes(q) || full.includes(q)) {
         const customer = rowToCustomer(r, week);
-        customer.lockedThisWeek = computeLocked(customer, rows, week);
+        customer.lockedThisWeek = computeLocked(customer);
         matches.push(customer);
       }
       if (matches.length >= 25) break;
@@ -350,7 +342,7 @@ export async function logVisit(input: LogVisitInput): Promise<LogVisitResult> {
 
     // Only a counting visit (products > 0 or oil) blocks a re-check this week;
     // a previous 0-product, no-oil visit may simply be overwritten.
-    if (computeLocked(existingCustomer, rows, week) && !input.override) {
+    if (computeLocked(existingCustomer) && !input.override) {
       return {
         ok: false,
         reason: "ALREADY_VISITED",
@@ -396,14 +388,10 @@ export async function logVisit(input: LogVisitInput): Promise<LogVisitResult> {
       row["Notities"] = input.notes;
     }
 
-    // Propagate oil grant across the whole groep — voucher is shared.
-    if (input.oil && existingCustomer.groepId) {
-      for (const r of rows) {
-        if (String(r["Groep ID"] ?? "").trim() === existingCustomer.groepId) {
-          r[`Olie ${week}`] = "Ja";
-        }
-      }
-    }
+    // Oil is marked only on the actual recipient (set above). It is NOT
+    // propagated across the groep — other members keep their own slot and may
+    // still shop. The once-per-groep oil cap is enforced by the conflict check
+    // above, which already blocks a second oil grant within the same groep.
 
     await saveRows(SHEET_NAME, finalHeaders, rows);
 
@@ -436,7 +424,7 @@ export async function findCustomerAndGroup(
     );
     if (!match) return null;
     const customer = rowToCustomer(match, week);
-    customer.lockedThisWeek = computeLocked(customer, klantenRows, week);
+    customer.lockedThisWeek = computeLocked(customer);
     if (!customer.groepId) return { customer, group: null };
     const { rows: groupRows } = await loadRows(GROUP_SHEET_NAME);
     const groepRow =
@@ -531,12 +519,12 @@ export async function logGroupVisit(
       loggedIds.push(memberId);
     }
 
-    // If oil is granted, mark Olie = "Ja" on every member of the groep — the
-    // voucher is shared, so the whole groep is flagged as having claimed it.
+    // Oil is the only once-per-groep resource. Mark it on the scanner (the
+    // member physically collecting) — NOT on the whole groep. Other members
+    // keep their own weekly slot and may still shop; only a second oil grant
+    // is blocked (by the oilHolder check above).
     if (input.oil) {
-      for (const r of memberRows) {
-        r[`Olie ${week}`] = "Ja";
-      }
+      klantenRows[scannerIdx][`Olie ${week}`] = "Ja";
     }
 
     if (loggedIds.length === 0 && !input.oil) {

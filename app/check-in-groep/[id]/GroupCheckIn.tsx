@@ -96,7 +96,7 @@ export default function GroupCheckIn({
       {group.hasAnyVisitThisWeek && (
         <div className="rounded-2xl bg-amber-50 border-2 border-amber-300 p-5 mb-5">
           <p className="text-sm uppercase tracking-wide text-amber-700 font-semibold">
-            Deze groep is al gebruikt deze week
+            Deze leden hebben deze week al geshopt
           </p>
           <ul className="mt-2 space-y-1 text-gray-900">
             {visitedMembers.map((m) => (
