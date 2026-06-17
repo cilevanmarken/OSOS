@@ -32,8 +32,6 @@ export default function GroupCheckIn({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>("");
 
-  const visitedMembers = group.members.filter((m) => m.countsThisWeek);
-
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     const n = Number(products);
@@ -93,25 +91,6 @@ export default function GroupCheckIn({
 
       <NoteBanner note={customer.notes} />
 
-      {group.hasAnyVisitThisWeek && (
-        <div className="rounded-2xl bg-amber-50 border-2 border-amber-300 p-5 mb-5">
-          <p className="text-sm uppercase tracking-wide text-amber-700 font-semibold">
-            Deze leden hebben deze week al geshopt
-          </p>
-          <ul className="mt-2 space-y-1 text-gray-900">
-            {visitedMembers.map((m) => (
-              <li key={m.id}>
-                {m.fullName} — {m.visitThisWeek?.day || "?"}
-                {typeof m.visitThisWeek?.products === "number"
-                  ? `, ${m.visitThisWeek.products} producten`
-                  : ""}
-                {m.visitThisWeek?.oil ? ", olie" : ""}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       <section className="card mb-5">
         <p className="text-sm uppercase tracking-wide text-gray-500">
           Klant (gescand)
@@ -157,7 +136,7 @@ export default function GroupCheckIn({
                         <p className="font-semibold">{m.fullName}</p>
                         {visited && (
                           <p className="text-xs text-amber-700 font-semibold">
-                            Al ingecheckt op {m.visitThisWeek?.day || "?"}
+                            Al geweest{m.visitThisWeek?.day ? ` (${m.visitThisWeek.day})` : ""}
                           </p>
                         )}
                       </div>

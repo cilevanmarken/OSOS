@@ -129,6 +129,20 @@ function visitCounts(visit: VisitRecord | undefined): boolean {
   return !!visit && ((visit.products ?? 0) > 0 || visit.oil);
 }
 
+// Split a product total as evenly as possible across `parts` people. Each gets
+// the floor share; the leftover remainder is handed out one extra at a time to
+// the first members (e.g. splitEvenly(5, 2) → [3, 2]).
+function splitEvenly(total: number, parts: number): number[] {
+  if (parts <= 0) return [];
+  const base = Math.floor(total / parts);
+  let remainder = total - base * parts;
+  return Array.from({ length: parts }, () => {
+    const extra = remainder > 0 ? 1 : 0;
+    if (remainder > 0) remainder--;
+    return base + extra;
+  });
+}
+
 // Whether a customer is locked out for the week. Every customer — solo or
 // groep member — uses their OWN weekly slot. A groep member who has not shopped
 // yet may still come even if another member already did. Oil is the only
@@ -502,22 +516,30 @@ export async function logGroupVisit(
       ...input.memberIds.map((s) => s.trim()),
       scannerIdTrim,
     ]);
-    const loggedIds: string[] = [];
 
-    for (const r of memberRows) {
+    // Members actually being logged this round: requested, in this groep, and
+    // not already counted (products > 0 or oil). A previous 0-product, no-oil
+    // visit can be overwritten — those members are eligible again.
+    const rowsToLog = memberRows.filter((r) => {
       const memberId = String(r["Stadpas ID"] ?? "").trim();
-      if (!requested.has(memberId)) continue;
-      // Skip only members whose existing visit counts (products > 0 or oil).
-      // A previous 0-product, no-oil visit can be overwritten — they may return.
+      if (!requested.has(memberId)) return false;
       const countsAlready =
         Number(r[`Producten ${week}`] || 0) > 0 ||
         String(r[`Olie ${week}`] ?? "").toLowerCase() === "ja";
-      if (countsAlready) continue;
+      return !countsAlready;
+    });
+
+    // Split the total products evenly across everyone the scanner shops for, so
+    // each person is recorded as having received groceries and therefore cannot
+    // shop again this week. The remainder is spread one extra over the first
+    // few members (e.g. 5 products over 2 people → 3 and 2).
+    const shares = splitEvenly(input.products, rowsToLog.length);
+    const loggedIds: string[] = [];
+    rowsToLog.forEach((r, i) => {
       r[`Week ${week}`] = input.day;
-      r[`Producten ${week}`] =
-        memberId === scannerIdTrim ? input.products : 0;
-      loggedIds.push(memberId);
-    }
+      r[`Producten ${week}`] = shares[i];
+      loggedIds.push(String(r["Stadpas ID"] ?? "").trim());
+    });
 
     // Oil is the only once-per-groep resource. Mark it on the scanner (the
     // member physically collecting) — NOT on the whole groep. Other members
