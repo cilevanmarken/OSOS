@@ -20,11 +20,9 @@ export default function GroupCheckIn({
   const scannerId = customer.id;
 
   const otherMembers = group.members.filter((m) => m.id !== scannerId);
-  // Members who can still be shopped for (haven't had a counting visit yet).
-  const eligibleOthers = otherMembers.filter((m) => !m.countsThisWeek);
-  const visitedOthers = otherMembers.filter((m) => m.countsThisWeek);
-  // All-or-nothing: the scanner either shops for every eligible member or none.
-  const [shopForOthers, setShopForOthers] = useState(eligibleOthers.length > 0);
+  // Per-member selection, each toggled independently. Everyone starts
+  // unchecked — the volunteer explicitly picks who the scanner also shops for.
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
 
   const [day, setDay] = useState<VisitDay>(defaultDay);
   const [products, setProducts] = useState<string>("");
@@ -41,7 +39,9 @@ export default function GroupCheckIn({
     }
     const memberIds = [
       scannerId,
-      ...(shopForOthers ? eligibleOthers.map((m) => m.id) : []),
+      ...otherMembers
+        .filter((m) => checked[m.id] && !m.countsThisWeek)
+        .map((m) => m.id),
     ];
     setSubmitting(true);
     setError("");
@@ -104,42 +104,51 @@ export default function GroupCheckIn({
       </section>
 
       <form onSubmit={onSubmit} className="space-y-6">
-        {eligibleOthers.length > 0 && (
+        {otherMembers.length > 0 && (
           <div>
             <label className="label">Shopt ook voor:</label>
-            <label className="card flex items-center gap-4 cursor-pointer">
-              <input
-                type="checkbox"
-                className="w-7 h-7 accent-brand-orange"
-                checked={shopForOthers}
-                onChange={(e) => setShopForOthers(e.target.checked)}
-              />
-              <div className="flex-1">
-                <p className="font-semibold">
-                  {eligibleOthers.map((m) => m.fullName).join(", ")}
-                </p>
-                <p className="text-sm text-gray-500">
-                  De producten worden verdeeld over iedereen die meeshopt.
-                </p>
-              </div>
-            </label>
+            <ul className="space-y-2">
+              {otherMembers.map((m) => {
+                const visited = m.countsThisWeek;
+                return (
+                  <li key={m.id}>
+                    <label
+                      className={
+                        "card flex items-center gap-4 " +
+                        (visited
+                          ? "opacity-60 cursor-not-allowed"
+                          : "cursor-pointer")
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        className="w-7 h-7 accent-brand-orange"
+                        checked={!!checked[m.id] && !visited}
+                        disabled={visited}
+                        onChange={(e) =>
+                          setChecked((prev) => ({
+                            ...prev,
+                            [m.id]: e.target.checked,
+                          }))
+                        }
+                      />
+                      <div className="flex-1">
+                        <p className="font-semibold">{m.fullName}</p>
+                        {visited && (
+                          <p className="text-xs text-amber-700 font-semibold">
+                            Al geweest{m.visitThisWeek?.day ? ` (${m.visitThisWeek.day})` : ""}
+                          </p>
+                        )}
+                      </div>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="text-sm text-gray-500 mt-2">
+              De producten worden verdeeld over iedereen die meeshopt.
+            </p>
           </div>
-        )}
-
-        {visitedOthers.length > 0 && (
-          <ul className="space-y-1">
-            {visitedOthers.map((m) => (
-              <li
-                key={m.id}
-                className="flex items-center justify-between text-sm text-gray-500"
-              >
-                <span>{m.fullName}</span>
-                <span className="text-amber-700 font-semibold">
-                  Al geweest{m.visitThisWeek?.day ? ` (${m.visitThisWeek.day})` : ""}
-                </span>
-              </li>
-            ))}
-          </ul>
         )}
 
         <div>

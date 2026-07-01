@@ -272,15 +272,20 @@ export async function searchCustomers(query: string): Promise<Customer[]> {
   });
 }
 
-// How many people are registered for a given day this ISO week — i.e. have that
-// day recorded in their "Week X" cell. Used for the homepage day counter.
+// How many people actually visited the store on a given day this ISO week: the
+// day is recorded AND the visit counts (took at least one product or oil). A
+// 0-product, no-oil visit does not count as a store visit. Used for the
+// homepage day counter.
 export async function countVisitorsForDay(day: VisitDay): Promise<number> {
   return withLock(async () => {
     const { rows } = await loadRows(SHEET_NAME);
     const week = isoWeek();
-    return rows.filter(
-      (r) => String(r[`Week ${week}`] ?? "").trim() === day
-    ).length;
+    return rows.filter((r) => {
+      if (String(r[`Week ${week}`] ?? "").trim() !== day) return false;
+      const products = Number(r[`Producten ${week}`] || 0);
+      const oil = String(r[`Olie ${week}`] ?? "").toLowerCase() === "ja";
+      return products > 0 || oil;
+    }).length;
   });
 }
 
