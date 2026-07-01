@@ -122,11 +122,23 @@ function ensureWeekColumns(headers: string[], week: number): string[] {
 }
 
 // A visit "counts" — i.e. uses up the customer's weekly slot — only when the
-// customer actually received something: at least one product or an oil
-// voucher. A 0-product, no-oil visit is effectively a no-op, so the customer
-// may come back later this week.
+// customer actually took products. A 0-product visit is a no-op, so the customer
+// may come back later this week. Oil is deliberately NOT part of this: it is a
+// shared, once-per-groep voucher that gets stamped on every member's row, so it
+// must never lock an individual or count as a store visit on its own.
 function visitCounts(visit: VisitRecord | undefined): boolean {
-  return !!visit && ((visit.products ?? 0) > 0 || visit.oil);
+  return !!visit && (visit.products ?? 0) > 0;
+}
+
+// A row belongs to the actual oil recipient when it carries oil AND a real
+// visit (a day or a product entry). This distinguishes the person who physically
+// received the voucher from group members who merely have the propagated
+// "Olie = Ja" marker. Used to enforce the once-per-groep oil cap.
+function rowHasOilVisit(row: Row, week: number): boolean {
+  const dayRaw = String(row[`Week ${week}`] ?? "").trim();
+  const productsRaw = row[`Producten ${week}`];
+  const hasVisit = dayRaw !== "" || (productsRaw !== "" && productsRaw != null);
+  return hasVisit && String(row[`Olie ${week}`] ?? "").toLowerCase() === "ja";
 }
 
 // Split a product total as evenly as possible across `parts` people. Each gets
@@ -197,7 +209,9 @@ function rowToGroupMember(row: Row, week: number): GroupMember {
     fullName: `${c.voornaam} ${c.achternaam}`.trim(),
     visitThisWeek: c.visitThisWeek,
     oilThisWeek,
-    countsThisWeek: (c.visitThisWeek?.products ?? 0) > 0 || oilThisWeek,
+    // Only taking products uses up a member's slot. Oil (which is stamped on the
+    // whole groep) must not disable a member who has not shopped yet.
+    countsThisWeek: visitCounts(c.visitThisWeek),
   };
 }
 
@@ -282,9 +296,7 @@ export async function countVisitorsForDay(day: VisitDay): Promise<number> {
     const week = isoWeek();
     return rows.filter((r) => {
       if (String(r[`Week ${week}`] ?? "").trim() !== day) return false;
-      const products = Number(r[`Producten ${week}`] || 0);
-      const oil = String(r[`Olie ${week}`] ?? "").toLowerCase() === "ja";
-      return products > 0 || oil;
+      return Number(r[`Producten ${week}`] || 0) > 0;
     }).length;
   });
 }
@@ -371,8 +383,8 @@ export async function logVisit(input: LogVisitInput): Promise<LogVisitResult> {
     const row = rows[idx];
     const existingCustomer = rowToCustomer(row, week);
 
-    // Only a counting visit (products > 0 or oil) blocks a re-check this week;
-    // a previous 0-product, no-oil visit may simply be overwritten.
+    // Only a counting visit (products > 0) blocks a re-check this week; a
+    // previous 0-product visit may simply be overwritten.
     if (computeLocked(existingCustomer) && !input.override) {
       return {
         ok: false,
@@ -388,14 +400,16 @@ export async function logVisit(input: LogVisitInput): Promise<LogVisitResult> {
     }
 
     // Per-groep oil cap also applies to solo writes (e.g. override flow on a
-    // groep member): block if another member of the same groep already has
-    // Olie = "Ja" for this ISO week.
+    // groep member): block if another member of the same groep has already
+    // physically received the oil voucher this ISO week. We look for a real
+    // oil visit (not just the propagated marker) so re-editing the recipient's
+    // own visit stays allowed.
     if (input.oil && existingCustomer.groepId) {
       const conflict = rows.find(
         (r) =>
           String(r["Groep ID"] ?? "").trim() === existingCustomer.groepId &&
           String(r["Stadpas ID"] ?? "").trim() !== existingCustomer.id &&
-          String(r[`Olie ${week}`] ?? "").toLowerCase() === "ja"
+          rowHasOilVisit(r, week)
       );
       if (conflict) {
         return {
@@ -419,10 +433,17 @@ export async function logVisit(input: LogVisitInput): Promise<LogVisitResult> {
       row["Notities"] = input.notes;
     }
 
-    // Oil is marked only on the actual recipient (set above). It is NOT
-    // propagated across the groep — other members keep their own slot and may
-    // still shop. The once-per-groep oil cap is enforced by the conflict check
-    // above, which already blocks a second oil grant within the same groep.
+    // The oil voucher is shared per groep, so stamp Olie = "Ja" on every member
+    // of the groep in the sheet. This is purely a marker — locking, the visitor
+    // count and the checkboxes all key off products, so it never blocks another
+    // member from shopping.
+    if (input.oil && existingCustomer.groepId) {
+      for (const r of rows) {
+        if (String(r["Groep ID"] ?? "").trim() === existingCustomer.groepId) {
+          r[`Olie ${week}`] = "Ja";
+        }
+      }
+    }
 
     await saveRows(SHEET_NAME, finalHeaders, rows);
 
@@ -510,11 +531,10 @@ export async function logGroupVisit(
       (r) => String(r["Groep ID"] ?? "").trim() === groupId
     );
 
-    // Oil voucher cap: only one oil grant per groep per ISO week. If any
-    // member already has Olie = "Ja", the volunteer cannot grant oil again.
-    const oilHolder = memberRows.find(
-      (r) => String(r[`Olie ${week}`] ?? "").toLowerCase() === "ja"
-    );
+    // Oil voucher cap: only one oil grant per groep per ISO week. Look for a
+    // member who physically received oil (a real visit + Olie), not just the
+    // propagated marker, so the cap reflects an actual prior grant.
+    const oilHolder = memberRows.find((r) => rowHasOilVisit(r, week));
     if (input.oil && oilHolder) {
       return {
         ok: false,
@@ -535,15 +555,12 @@ export async function logGroupVisit(
     ]);
 
     // Members actually being logged this round: requested, in this groep, and
-    // not already counted (products > 0 or oil). A previous 0-product, no-oil
-    // visit can be overwritten — those members are eligible again.
+    // not already counted (products > 0). A previous 0-product visit — or a
+    // member who only carries the propagated oil marker — can still shop.
     const rowsToLog = memberRows.filter((r) => {
       const memberId = String(r["Stadpas ID"] ?? "").trim();
       if (!requested.has(memberId)) return false;
-      const countsAlready =
-        Number(r[`Producten ${week}`] || 0) > 0 ||
-        String(r[`Olie ${week}`] ?? "").toLowerCase() === "ja";
-      return !countsAlready;
+      return Number(r[`Producten ${week}`] || 0) <= 0;
     });
 
     // Split the total products evenly across everyone the scanner shops for, so
@@ -558,12 +575,15 @@ export async function logGroupVisit(
       loggedIds.push(String(r["Stadpas ID"] ?? "").trim());
     });
 
-    // Oil is the only once-per-groep resource. Mark it on the scanner (the
-    // member physically collecting) — NOT on the whole groep. Other members
-    // keep their own weekly slot and may still shop; only a second oil grant
-    // is blocked (by the oilHolder check above).
+    // The oil voucher is shared per groep, so stamp Olie = "Ja" on every member
+    // of the groep in the sheet. It stays a pure marker — locking, the visitor
+    // count and the checkboxes all key off products, so it never blocks another
+    // member from shopping. The scanner (logged just above with a real visit)
+    // is the recipient the once-per-groep cap will recognise.
     if (input.oil) {
-      klantenRows[scannerIdx][`Olie ${week}`] = "Ja";
+      for (const r of memberRows) {
+        r[`Olie ${week}`] = "Ja";
+      }
     }
 
     if (loggedIds.length === 0 && !input.oil) {
