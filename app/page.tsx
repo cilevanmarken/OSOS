@@ -1,8 +1,15 @@
 import Image from "next/image";
 import Link from "next/link";
 import LogoutButton from "./LogoutButton";
+import { countVisitorsForDay } from "@/lib/excel";
+import { dayForToday } from "@/lib/week";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const day = dayForToday();
+  const count = await countVisitorsForDay(day);
+
   return (
     <main className="flex-1 flex flex-col px-5 pt-10 pb-8">
       <header className="mb-10">
@@ -17,6 +24,16 @@ export default function Home() {
       </header>
 
       <div className="flex-1 flex flex-col justify-center gap-6">
+        <div className="card text-center">
+          <p className="text-sm uppercase tracking-wide text-gray-500">
+            Vandaag ({day})
+          </p>
+          <p className="text-4xl font-bold text-brand-blue mt-1">{count}</p>
+          <p className="text-sm text-gray-500 mt-1">
+            {count === 1 ? "klant langs geweest" : "klanten langs geweest"}
+          </p>
+        </div>
+
         <Link href="/scan" className="btn-primary py-8 text-2xl w-full">
           Scan stadspas
         </Link>

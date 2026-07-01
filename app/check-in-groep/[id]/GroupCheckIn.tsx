@@ -20,11 +20,11 @@ export default function GroupCheckIn({
   const scannerId = customer.id;
 
   const otherMembers = group.members.filter((m) => m.id !== scannerId);
-  const initialChecked: Record<string, boolean> = {};
-  for (const m of otherMembers) {
-    initialChecked[m.id] = !m.countsThisWeek;
-  }
-  const [checked, setChecked] = useState<Record<string, boolean>>(initialChecked);
+  // Members who can still be shopped for (haven't had a counting visit yet).
+  const eligibleOthers = otherMembers.filter((m) => !m.countsThisWeek);
+  const visitedOthers = otherMembers.filter((m) => m.countsThisWeek);
+  // All-or-nothing: the scanner either shops for every eligible member or none.
+  const [shopForOthers, setShopForOthers] = useState(eligibleOthers.length > 0);
 
   const [day, setDay] = useState<VisitDay>(defaultDay);
   const [products, setProducts] = useState<string>("");
@@ -41,7 +41,7 @@ export default function GroupCheckIn({
     }
     const memberIds = [
       scannerId,
-      ...otherMembers.filter((m) => checked[m.id] && !m.countsThisWeek).map((m) => m.id),
+      ...(shopForOthers ? eligibleOthers.map((m) => m.id) : []),
     ];
     setSubmitting(true);
     setError("");
@@ -104,48 +104,42 @@ export default function GroupCheckIn({
       </section>
 
       <form onSubmit={onSubmit} className="space-y-6">
-        {otherMembers.length > 0 && (
+        {eligibleOthers.length > 0 && (
           <div>
-            <label className="label">Voor wie shopt deze klant?</label>
-            <ul className="space-y-2">
-              {otherMembers.map((m) => {
-                const visited = m.countsThisWeek;
-                return (
-                  <li key={m.id}>
-                    <label
-                      className={
-                        "card flex items-center gap-4 " +
-                        (visited
-                          ? "opacity-60 cursor-not-allowed"
-                          : "cursor-pointer")
-                      }
-                    >
-                      <input
-                        type="checkbox"
-                        className="w-7 h-7 accent-brand-orange"
-                        checked={!!checked[m.id] && !visited}
-                        disabled={visited}
-                        onChange={(e) =>
-                          setChecked((prev) => ({
-                            ...prev,
-                            [m.id]: e.target.checked,
-                          }))
-                        }
-                      />
-                      <div className="flex-1">
-                        <p className="font-semibold">{m.fullName}</p>
-                        {visited && (
-                          <p className="text-xs text-amber-700 font-semibold">
-                            Al geweest{m.visitThisWeek?.day ? ` (${m.visitThisWeek.day})` : ""}
-                          </p>
-                        )}
-                      </div>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
+            <label className="label">Shopt ook voor:</label>
+            <label className="card flex items-center gap-4 cursor-pointer">
+              <input
+                type="checkbox"
+                className="w-7 h-7 accent-brand-orange"
+                checked={shopForOthers}
+                onChange={(e) => setShopForOthers(e.target.checked)}
+              />
+              <div className="flex-1">
+                <p className="font-semibold">
+                  {eligibleOthers.map((m) => m.fullName).join(", ")}
+                </p>
+                <p className="text-sm text-gray-500">
+                  De producten worden verdeeld over iedereen die meeshopt.
+                </p>
+              </div>
+            </label>
           </div>
+        )}
+
+        {visitedOthers.length > 0 && (
+          <ul className="space-y-1">
+            {visitedOthers.map((m) => (
+              <li
+                key={m.id}
+                className="flex items-center justify-between text-sm text-gray-500"
+              >
+                <span>{m.fullName}</span>
+                <span className="text-amber-700 font-semibold">
+                  Al geweest{m.visitThisWeek?.day ? ` (${m.visitThisWeek.day})` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
 
         <div>
@@ -222,7 +216,7 @@ export default function GroupCheckIn({
 
         <button
           type="submit"
-          disabled={submitting || products === ""}
+          disabled={submitting}
           className="btn-primary w-full text-xl py-6"
         >
           {submitting ? "Opslaan…" : "Bevestig bezoek"}

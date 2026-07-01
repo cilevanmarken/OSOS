@@ -152,14 +152,17 @@ export default function RegisterForm({
         </div>
 
         <div>
-          <label className="label" htmlFor="postcode">Postcode</label>
+          <label className="label" htmlFor="postcode">Postcode (cijfers)</label>
           <input
             id="postcode"
             className="input"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={4}
             value={postcode}
-            onChange={(e) => setPostcode(e.target.value.toUpperCase())}
+            onChange={(e) => setPostcode(e.target.value.replace(/[^0-9]/g, ""))}
             autoComplete="postal-code"
-            placeholder="1234 AB"
+            placeholder="1234"
           />
         </div>
 
@@ -243,7 +246,7 @@ export default function RegisterForm({
 
         <button
           type="submit"
-          disabled={submitting || products === ""}
+          disabled={submitting}
           className="btn-primary w-full text-xl py-6"
         >
           {submitting ? "Opslaan…" : "Registreer & check in"}

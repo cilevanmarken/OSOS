@@ -272,6 +272,18 @@ export async function searchCustomers(query: string): Promise<Customer[]> {
   });
 }
 
+// How many people are registered for a given day this ISO week — i.e. have that
+// day recorded in their "Week X" cell. Used for the homepage day counter.
+export async function countVisitorsForDay(day: VisitDay): Promise<number> {
+  return withLock(async () => {
+    const { rows } = await loadRows(SHEET_NAME);
+    const week = isoWeek();
+    return rows.filter(
+      (r) => String(r[`Week ${week}`] ?? "").trim() === day
+    ).length;
+  });
+}
+
 export type CreateCustomerInput = {
   // The stadspas ID. Leave empty when the customer has no stadspas — a unique
   // internal ID is then generated automatically.

@@ -168,7 +168,7 @@ export default function CheckInForm({
 
         <button
           type="submit"
-          disabled={submitting || products === ""}
+          disabled={submitting}
           className="btn-primary w-full text-xl py-6"
         >
           {submitting ? "Opslaan…" : "Bevestig bezoek"}
