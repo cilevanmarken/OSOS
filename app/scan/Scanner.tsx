@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { BrowserMultiFormatReader, type IScannerControls } from "@zxing/browser";
+import { resolveScan, useBarcodeScanner } from "./scanner-lib";
 
 type Mode = "scanner" | "camera" | "manual";
 
@@ -18,50 +19,14 @@ export default function Scanner() {
   const [manualId, setManualId] = useState("");
   const [scannerBusy, setScannerBusy] = useState(false);
 
-  // Default mode: USB barcode scanner. These devices act as a keyboard,
-  // "typing" the barcode very fast and finishing with an Enter key. We
-  // buffer keystrokes globally and submit the code on Enter.
-  useEffect(() => {
-    if (mode !== "scanner") return;
-
-    let buffer = "";
-    let lastKeyTime = 0;
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      // Ignore keystrokes aimed at a real input/textarea.
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.isContentEditable)
-      ) {
-        return;
-      }
-
-      const now = Date.now();
-      // A gap longer than 100ms means a new scan (or stray human keypress).
-      if (now - lastKeyTime > 100) buffer = "";
-      lastKeyTime = now;
-
-      if (e.key === "Enter") {
-        const code = buffer;
-        buffer = "";
-        if (code) {
-          setScannerBusy(true);
-          handleScan(code);
-        }
-        return;
-      }
-
-      // Only collect printable single characters (digits/letters).
-      if (e.key.length === 1) buffer += e.key;
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+  // Default mode: USB barcode scanner (keyboard-wedge). Active only in scanner
+  // mode so it doesn't fight the camera or the manual input field.
+  const onScannerInput = useCallback((code: string) => {
+    setScannerBusy(true);
+    handleScan(code);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+  }, []);
+  useBarcodeScanner(onScannerInput, mode === "scanner");
 
   // Camera mode (backup): decode the barcode from the webcam with ZXing.
   useEffect(() => {
@@ -144,29 +109,13 @@ export default function Scanner() {
   }, [mode]);
 
   async function handleScan(id: string) {
-    const trimmed = id.trim();
-    if (!trimmed) {
+    if (!id.trim()) {
       handledRef.current = false;
       setScannerBusy(false);
       return;
     }
     try {
-      const res = await fetch(`/api/customers/${encodeURIComponent(trimmed)}`, {
-        cache: "no-store",
-      });
-      if (res.status === 404) {
-        router.push(`/register/${encodeURIComponent(trimmed)}`);
-        return;
-      }
-      const data = await res.json();
-      const customer = data?.customer;
-      if (customer?.lockedThisWeek) {
-        router.push(`/already-visited/${encodeURIComponent(trimmed)}`);
-      } else if (customer?.groepId) {
-        router.push(`/check-in-groep/${encodeURIComponent(trimmed)}`);
-      } else {
-        router.push(`/check-in/${encodeURIComponent(trimmed)}`);
-      }
+      await resolveScan(router, id);
     } catch {
       setStatus("error");
       setErrorMsg("Kon de server niet bereiken.");
@@ -190,10 +139,7 @@ export default function Scanner() {
 
       {mode === "scanner" && (
         <div className="flex-1 flex flex-col">
-          <div className="relative aspect-[3/4] bg-brand-blue/5 border-2 border-dashed border-brand-blue/30 rounded-2xl overflow-hidden mb-5 flex flex-col items-center justify-center text-center px-6">
-            <div className="text-6xl mb-4" aria-hidden>
-              {scannerBusy ? "⏳" : "📷"}
-            </div>
+          <div className="bg-brand-blue/5 border-2 border-dashed border-brand-blue/30 rounded-2xl px-6 py-32 text-center mb-5">
             <p className="font-semibold text-lg text-brand-blue mb-1">
               {scannerBusy ? "Bezig met zoeken…" : "Klaar om te scannen"}
             </p>

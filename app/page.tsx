@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import LogoutButton from "./LogoutButton";
+import HomeScanListener from "./HomeScanListener";
 import { countVisitorsForDay } from "@/lib/excel";
 import { dayForToday } from "@/lib/week";
 
@@ -12,6 +13,7 @@ export default async function Home() {
 
   return (
     <main className="flex-1 flex flex-col px-5 pt-10 pb-8">
+      <HomeScanListener />
       <header className="mb-10">
         <Image
           src="/logo.png"
