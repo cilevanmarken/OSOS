@@ -4,7 +4,6 @@ import { sheets, auth } from "@googleapis/sheets";
 // Run with:  npm run seed   (loads .env.local via --env-file)
 
 const SHEET_NAME = "klanten registratie";
-const GROUP_SHEET_NAME = "groepen";
 
 const email = process.env.GOOGLE_CLIENT_EMAIL;
 const key = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n");
@@ -84,13 +83,6 @@ peter[`Week ${week}`] = "Woensdag";
 peter[`Producten ${week}`] = 12;
 peter[`Olie ${week}`] = "Ja";
 
-const groepenHeaders = ["Groep ID", "Leden", "Postcode", "Notities"];
-const groepenRows = [
-  { "Groep ID": "G001", "Leden": "Maria de Vries, Jan de Vries", "Postcode": "1071 GH", "Notities": "" },
-  { "Groep ID": "G002", "Leden": "Ahmed Hassan, Fatima Hassan, Yusuf Hassan", "Postcode": "1102 KS", "Notities": "" },
-  { "Groep ID": "G003", "Leden": "Peter de Wit, Anna de Wit", "Postcode": "1015 BC", "Notities": "" },
-];
-
 function quote(title) {
   return `'${title.replace(/'/g, "''")}'`;
 }
@@ -121,9 +113,8 @@ async function replaceTab(title, headers, rows) {
 }
 
 await replaceTab(SHEET_NAME, klantenHeaders, klantenRows);
-await replaceTab(GROUP_SHEET_NAME, groepenHeaders, groepenRows);
 
-console.log(`Seeded ${customers.length} klanten and ${groepenRows.length} groepen for week ${week}.`);
+console.log(`Seeded ${customers.length} klanten for week ${week}. Groepen worden afgeleid uit de kolom "Groep ID".`);
 console.log("");
 console.log("Demo scenarios (use ID in 'Handmatig ID invoeren'):");
 console.log("  Solo:");

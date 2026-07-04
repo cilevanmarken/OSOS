@@ -43,16 +43,16 @@ The app reads and writes one Google Spreadsheet through the Google Sheets API.
 
 ## Spreadsheet structure
 
-Two tabs (created automatically on first write if missing):
+One tab (created automatically on first write if missing):
 
 - **`klanten registratie`** — base columns `Stadpas ID`, `Voornaam`,
   `Achternaam`, `Postcode`, `Groep ID`, `ID gecontroleerd`, `Notities`. The
   `Stadpas ID` is the unique identifier; customers without a stadspas get an
   auto-generated `ZP#` id. Per ISO week the app appends `Week X`, `Producten X`,
-  `Olie X` when first used.
-- **`groepen`** — `Groep ID`, `Leden`, `Postcode`, `Notities`.
+  `Olie X` when first used. Groepen worden volledig afgeleid uit de kolom
+  `Groep ID` — leden met dezelfde `Groep ID` vormen samen een groep.
 
-Seed demo data into the configured sheet (overwrites both tabs):
+Seed demo data into the configured sheet (overwrites the tab):
 
 ```bash
 npm run seed

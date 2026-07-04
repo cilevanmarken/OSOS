@@ -2,7 +2,6 @@ import { readGrid, writeGrid, type Cell } from "./sheets";
 import { isoWeek, type VisitDay } from "./week";
 
 export const SHEET_NAME = "klanten registratie";
-export const GROUP_SHEET_NAME = "groepen";
 
 const BASE_COLUMNS = [
   "Stadpas ID",
@@ -13,8 +12,6 @@ const BASE_COLUMNS = [
   "ID gecontroleerd",
   "Notities",
 ] as const;
-
-const GROUP_COLUMNS = ["Groep ID", "Leden", "Postcode", "Notities"] as const;
 
 export type Customer = {
   // The stadspas ID — the single identifier column ("Stadpas ID") in the
@@ -49,8 +46,6 @@ export type GroupMember = {
 
 export type GroupView = {
   id: string;
-  postcode: string;
-  notes: string;
   members: GroupMember[];
   oilUsedThisWeek: boolean;
   oilRecipient: { fullName: string; day: VisitDay | "" } | null;
@@ -217,7 +212,6 @@ function rowToGroupMember(row: Row, week: number): GroupMember {
 
 function computeGroupView(
   klantenRows: Row[],
-  groepRow: Row | null,
   groupId: string,
   week: number
 ): GroupView {
@@ -241,8 +235,6 @@ function computeGroupView(
 
   return {
     id: groupId,
-    postcode: groepRow ? String(groepRow["Postcode"] ?? "").trim() : "",
-    notes: groepRow ? String(groepRow["Notities"] ?? "") : "",
     members,
     oilUsedThisWeek: !!anyOilMember,
     oilRecipient,
@@ -478,17 +470,7 @@ export async function findCustomerAndGroup(
     const customer = rowToCustomer(match, week);
     customer.lockedThisWeek = computeLocked(customer);
     if (!customer.groepId) return { customer, group: null };
-    const { rows: groupRows } = await loadRows(GROUP_SHEET_NAME);
-    const groepRow =
-      groupRows.find(
-        (r) => String(r["Groep ID"] ?? "").trim() === customer.groepId
-      ) ?? null;
-    const group = computeGroupView(
-      klantenRows,
-      groepRow,
-      customer.groepId,
-      week
-    );
+    const group = computeGroupView(klantenRows, customer.groepId, week);
     return { customer, group };
   });
 }
@@ -592,40 +574,7 @@ export async function logGroupVisit(
 
     await saveRows(SHEET_NAME, finalKHeaders, klantenRows);
 
-    // Resync Leden in groepen sheet — manager-edited membership stays in sync.
-    const { headers: gHeaders, rows: groupRows } = await loadRows(GROUP_SHEET_NAME);
-    let finalGHeaders = gHeaders;
-    for (const c of GROUP_COLUMNS) {
-      if (!finalGHeaders.includes(c)) finalGHeaders = [...finalGHeaders, c];
-    }
-    const ledenStr = klantenRows
-      .filter((r) => String(r["Groep ID"] ?? "").trim() === groupId)
-      .map((r) =>
-        `${String(r["Voornaam"] ?? "").trim()} ${String(
-          r["Achternaam"] ?? ""
-        ).trim()}`.trim()
-      )
-      .filter(Boolean)
-      .join(", ");
-    const groupIdx = groupRows.findIndex(
-      (r) => String(r["Groep ID"] ?? "").trim() === groupId
-    );
-    if (groupIdx === -1) {
-      groupRows.push({
-        "Groep ID": groupId,
-        Leden: ledenStr,
-        Postcode: String(klantenRows[scannerIdx]["Postcode"] ?? ""),
-        Notities: "",
-      });
-    } else {
-      groupRows[groupIdx]["Leden"] = ledenStr;
-    }
-    await saveRows(GROUP_SHEET_NAME, finalGHeaders, groupRows);
-
-    const groepRowAfter =
-      groupRows.find((r) => String(r["Groep ID"] ?? "").trim() === groupId) ??
-      null;
-    const group = computeGroupView(klantenRows, groepRowAfter, groupId, week);
+    const group = computeGroupView(klantenRows, groupId, week);
     return { ok: true, group, loggedIds } as const;
   });
 }
