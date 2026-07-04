@@ -87,10 +87,86 @@ async function ensureTab(title: string, headerRow: string[]): Promise<void> {
 // rows/columns (never removes), so a plain update never leaves stale cells.
 export async function writeGrid(title: string, values: Cell[][]): Promise<void> {
   await ensureTab(title, (values[0] ?? []).map(String));
-  await getClient().spreadsheets.values.update({
-    spreadsheetId: spreadsheetId(),
+  const client = getClient();
+  const id = spreadsheetId();
+  await client.spreadsheets.values.update({
+    spreadsheetId: id,
     range: rangeFor(title, "A1"),
     valueInputOption: "RAW",
     requestBody: { values },
   });
+  // If the tab is backed by a native Google Sheets Table, values.update only
+  // fills cells — it never grows the table's structural range. Resize the table
+  // so new rows (people) and new columns (weeks) become part of it.
+  await resizeTableToData(client, id, title, values);
+}
+
+// Grow the tab's Table (if any) to cover the freshly written data grid. The app
+// writes A1-anchored, so the data spans rows [0, numRows) and columns
+// [0, numCols); we keep the table's existing top-left anchor and extend its end
+// to that extent. A resize failure is logged but never fails the write — the
+// values themselves are already saved.
+async function resizeTableToData(
+  client: sheets_v4.Sheets,
+  id: string,
+  title: string,
+  values: Cell[][]
+): Promise<void> {
+  const numRows = values.length;
+  const numCols = Math.max(0, ...values.map((r) => r.length));
+  if (numRows === 0 || numCols === 0) return;
+
+  try {
+    const meta = await client.spreadsheets.get({
+      spreadsheetId: id,
+      fields: "sheets(properties(sheetId,title),tables(tableId,range))",
+    });
+    const sheet = (meta.data.sheets ?? []).find(
+      (s) => s.properties?.title === title
+    );
+    const sheetId = sheet?.properties?.sheetId;
+    const table = (sheet?.tables ?? [])[0];
+    if (!table?.tableId || sheetId == null) return;
+
+    const range = table.range ?? {};
+    const startRowIndex = range.startRowIndex ?? 0;
+    const startColumnIndex = range.startColumnIndex ?? 0;
+    // Already covers the data — nothing to do.
+    if (
+      startRowIndex === 0 &&
+      startColumnIndex === 0 &&
+      range.endRowIndex === numRows &&
+      range.endColumnIndex === numCols
+    ) {
+      return;
+    }
+
+    await client.spreadsheets.batchUpdate({
+      spreadsheetId: id,
+      requestBody: {
+        requests: [
+          {
+            updateTable: {
+              table: {
+                tableId: table.tableId,
+                range: {
+                  sheetId,
+                  startRowIndex,
+                  startColumnIndex,
+                  endRowIndex: numRows,
+                  endColumnIndex: numCols,
+                },
+              },
+              fields: "range",
+            },
+          },
+        ],
+      },
+    });
+  } catch (err: unknown) {
+    console.warn(
+      `Kon de tabel op tab "${title}" niet vergroten:`,
+      err instanceof Error ? err.message : err
+    );
+  }
 }

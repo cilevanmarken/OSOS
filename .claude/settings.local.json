@@ -15,7 +15,13 @@
       "Bash(curl *)",
       "Bash(node -e ' *)",
       "Bash(npx tsc *)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(grep -rl 'Schema$Table\\\\b' node_modules/@googleapis/sheets/build/)",
+      "Bash(grep -o 'Schema$Table[A-Za-z]*' node_modules/@googleapis/sheets/build/src/v4.d.ts)",
+      "Bash(grep -o 'Schema$Table[A-Za-z]*\\\\|UpdateTableRequest\\\\|AddTableRequest\\\\|updateTable\\\\b' node_modules/@googleapis/sheets/build/v4.d.ts)",
+      "Bash(grep -i 'request\\\\|Schema$Table ')",
+      "Bash(grep -n 'export interface Schema$Sheet ' node_modules/@googleapis/sheets/build/v4.d.ts)",
+      "Bash(sed -n '/export interface Schema\\\\$Sheet /,/^    }/p' node_modules/@googleapis/sheets/build/v4.d.ts)"
     ]
   }
 }
