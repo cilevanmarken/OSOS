@@ -5,17 +5,71 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { BrowserMultiFormatReader, type IScannerControls } from "@zxing/browser";
 
+type Mode = "scanner" | "camera" | "manual";
+
 export default function Scanner() {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
   const handledRef = useRef(false);
+  const [mode, setMode] = useState<Mode>("scanner");
   const [status, setStatus] = useState<"loading" | "scanning" | "error">("loading");
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [manualId, setManualId] = useState("");
+  const [scannerBusy, setScannerBusy] = useState(false);
 
+  // Default mode: USB barcode scanner. These devices act as a keyboard,
+  // "typing" the barcode very fast and finishing with an Enter key. We
+  // buffer keystrokes globally and submit the code on Enter.
   useEffect(() => {
+    if (mode !== "scanner") return;
+
+    let buffer = "";
+    let lastKeyTime = 0;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Ignore keystrokes aimed at a real input/textarea.
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      const now = Date.now();
+      // A gap longer than 100ms means a new scan (or stray human keypress).
+      if (now - lastKeyTime > 100) buffer = "";
+      lastKeyTime = now;
+
+      if (e.key === "Enter") {
+        const code = buffer;
+        buffer = "";
+        if (code) {
+          setScannerBusy(true);
+          handleScan(code);
+        }
+        return;
+      }
+
+      // Only collect printable single characters (digits/letters).
+      if (e.key.length === 1) buffer += e.key;
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  // Camera mode (backup): decode the barcode from the webcam with ZXing.
+  useEffect(() => {
+    if (mode !== "camera") return;
+
     let cancelled = false;
+    setStatus("loading");
+    setErrorMsg("");
     const reader = new BrowserMultiFormatReader();
 
     (async () => {
@@ -66,7 +120,7 @@ export default function Scanner() {
             );
           } else if (/NotFound|DevicesNotFound/i.test(msg)) {
             setErrorMsg(
-              "Geen camera gevonden op dit apparaat. Gebruik handmatige invoer hieronder."
+              "Geen camera gevonden op dit apparaat. Gebruik handmatige invoer."
             );
           } else if (/NotReadable|TrackStart/i.test(msg)) {
             setErrorMsg(
@@ -74,7 +128,7 @@ export default function Scanner() {
             );
           } else {
             setErrorMsg(
-              "Camera kon niet gestart worden. Gebruik handmatige invoer hieronder."
+              "Camera kon niet gestart worden. Gebruik handmatige invoer."
             );
           }
         }
@@ -84,13 +138,16 @@ export default function Scanner() {
     return () => {
       cancelled = true;
       controlsRef.current?.stop();
+      controlsRef.current = null;
+      handledRef.current = false;
     };
-  }, []);
+  }, [mode]);
 
   async function handleScan(id: string) {
     const trimmed = id.trim();
     if (!trimmed) {
       handledRef.current = false;
+      setScannerBusy(false);
       return;
     }
     try {
@@ -114,6 +171,7 @@ export default function Scanner() {
       setStatus("error");
       setErrorMsg("Kon de server niet bereiken.");
       handledRef.current = false;
+      setScannerBusy(false);
     }
   }
 
@@ -130,56 +188,136 @@ export default function Scanner() {
         <span className="w-12" />
       </header>
 
-      <div className="relative aspect-[3/4] bg-black rounded-2xl overflow-hidden mb-5">
-        <video
-          ref={videoRef}
-          playsInline
-          muted
-          className="absolute inset-0 w-full h-full object-cover"
-        />
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 h-32 border-4 border-brand-orange rounded-2xl shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
+      {mode === "scanner" && (
+        <div className="flex-1 flex flex-col">
+          <div className="relative aspect-[3/4] bg-brand-blue/5 border-2 border-dashed border-brand-blue/30 rounded-2xl overflow-hidden mb-5 flex flex-col items-center justify-center text-center px-6">
+            <div className="text-6xl mb-4" aria-hidden>
+              {scannerBusy ? "⏳" : "📷"}
+            </div>
+            <p className="font-semibold text-lg text-brand-blue mb-1">
+              {scannerBusy ? "Bezig met zoeken…" : "Klaar om te scannen"}
+            </p>
+            <p className="text-gray-500 text-sm">
+              Scan de barcode van de stadspas met de handscanner
+            </p>
+          </div>
+
+          <p className="text-center text-gray-500 text-sm mb-4">
+            Werkt de scanner niet? Kies een andere optie hieronder.
+          </p>
+
+          <div className="space-y-3 mt-auto">
+            <button
+              type="button"
+              className="btn-secondary w-full"
+              onClick={() => setMode("camera")}
+            >
+              Gebruik camera
+            </button>
+            <button
+              type="button"
+              className="btn-secondary w-full"
+              onClick={() => setMode("manual")}
+            >
+              Handmatig invoeren
+            </button>
+          </div>
         </div>
-        {status === "loading" && (
-          <div className="absolute inset-0 flex items-center justify-center text-white">
-            Camera laden…
-          </div>
-        )}
-        {status === "error" && (
-          <div className="absolute inset-0 flex items-center justify-center text-white text-center p-6 bg-black/70">
-            {errorMsg}
-          </div>
-        )}
-      </div>
+      )}
 
-      <p className="text-center text-gray-500 text-sm mb-4">
-        Richt de camera op de barcode van de stadspas
-      </p>
+      {mode === "camera" && (
+        <div className="flex-1 flex flex-col">
+          <div className="relative aspect-[3/4] bg-black rounded-2xl overflow-hidden mb-5">
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 pointer-events-none">
+              <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 h-32 border-4 border-brand-orange rounded-2xl shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
+            </div>
+            {status === "loading" && (
+              <div className="absolute inset-0 flex items-center justify-center text-white">
+                Camera laden…
+              </div>
+            )}
+            {status === "error" && (
+              <div className="absolute inset-0 flex items-center justify-center text-white text-center p-6 bg-black/70">
+                {errorMsg}
+              </div>
+            )}
+          </div>
 
-      <details className="card">
-        <summary className="font-semibold text-brand-blue cursor-pointer">
-          Handmatig ID invoeren
-        </summary>
-        <form
-          className="mt-4 space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (manualId.trim()) handleScan(manualId);
-          }}
-        >
-          <input
-            className="input"
-            inputMode="numeric"
-            autoComplete="off"
-            placeholder="Stadspas ID"
-            value={manualId}
-            onChange={(e) => setManualId(e.target.value)}
-          />
-          <button type="submit" className="btn-secondary w-full">
-            Zoek klant
-          </button>
-        </form>
-      </details>
+          <p className="text-center text-gray-500 text-sm mb-4">
+            Richt de camera op de barcode van de stadspas
+          </p>
+
+          <div className="space-y-3 mt-auto">
+            <button
+              type="button"
+              className="btn-secondary w-full"
+              onClick={() => setMode("scanner")}
+            >
+              Terug naar handscanner
+            </button>
+            <button
+              type="button"
+              className="btn-secondary w-full"
+              onClick={() => setMode("manual")}
+            >
+              Handmatig invoeren
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mode === "manual" && (
+        <div className="flex-1 flex flex-col">
+          <div className="card">
+            <h2 className="font-semibold text-brand-blue mb-3">
+              Handmatig ID invoeren
+            </h2>
+            <form
+              className="space-y-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (manualId.trim()) handleScan(manualId);
+              }}
+            >
+              <input
+                className="input"
+                inputMode="numeric"
+                autoComplete="off"
+                autoFocus
+                placeholder="Stadspas ID"
+                value={manualId}
+                onChange={(e) => setManualId(e.target.value)}
+              />
+              <button type="submit" className="btn-primary w-full">
+                Zoek klant
+              </button>
+            </form>
+          </div>
+
+          <div className="space-y-3 mt-auto">
+            <button
+              type="button"
+              className="btn-secondary w-full"
+              onClick={() => setMode("scanner")}
+            >
+              Terug naar handscanner
+            </button>
+            <button
+              type="button"
+              className="btn-secondary w-full"
+              onClick={() => setMode("camera")}
+            >
+              Gebruik camera
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
