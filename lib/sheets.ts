@@ -2,7 +2,7 @@ import { sheets, auth, type sheets_v4 } from "@googleapis/sheets";
 
 // Low-level Google Sheets access. The domain logic lives in lib/excel.ts and
 // works on a "headers + rows" model, just like the old local-xlsx version;
-// this module only handles auth and reading/writing raw cell grids.
+// this module only handles auth and reading/writing raw cell grids. yes
 //
 // Required environment variables (see .env.local.example):
 //   GOOGLE_CLIENT_EMAIL  – service-account email
