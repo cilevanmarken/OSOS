@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { Customer } from "@/lib/excel";
 import type { VisitDay } from "@/lib/week";
 import NoteBanner from "@/components/NoteBanner";
+import { blockEnterSubmit } from "@/lib/form-utils";
 
 export default function AlreadyVisited({
   customer,
@@ -186,7 +187,7 @@ export default function AlreadyVisited({
           Was dit een vergissing? Override
         </button>
       ) : (
-        <form onSubmit={submitOverride} className="card mt-3 space-y-4 border-red-200">
+        <form onSubmit={submitOverride} onKeyDown={blockEnterSubmit} className="card mt-3 space-y-4 border-red-200">
           <p className="text-sm text-red-700 font-semibold">
             Override gebruiken alleen bij een foutieve eerdere registratie. De
             gegevens worden overschreven.

@@ -21,7 +21,9 @@
       "Bash(grep -o 'Schema$Table[A-Za-z]*\\\\|UpdateTableRequest\\\\|AddTableRequest\\\\|updateTable\\\\b' node_modules/@googleapis/sheets/build/v4.d.ts)",
       "Bash(grep -i 'request\\\\|Schema$Table ')",
       "Bash(grep -n 'export interface Schema$Sheet ' node_modules/@googleapis/sheets/build/v4.d.ts)",
-      "Bash(sed -n '/export interface Schema\\\\$Sheet /,/^    }/p' node_modules/@googleapis/sheets/build/v4.d.ts)"
+      "Bash(sed -n '/export interface Schema\\\\$Sheet /,/^    }/p' node_modules/@googleapis/sheets/build/v4.d.ts)",
+      "Bash(npx --no-install playwright --version)",
+      "Bash(grep -oE '[0-9]+$')"
     ]
   }
 }

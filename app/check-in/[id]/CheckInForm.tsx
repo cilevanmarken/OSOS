@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { Customer } from "@/lib/excel";
 import type { VisitDay } from "@/lib/week";
 import NoteBanner from "@/components/NoteBanner";
+import { blockEnterSubmit } from "@/lib/form-utils";
 
 export default function CheckInForm({
   customer,
@@ -93,7 +94,7 @@ export default function CheckInForm({
         </p>
       </section>
 
-      <form onSubmit={onSubmit} className="space-y-6">
+      <form onSubmit={onSubmit} onKeyDown={blockEnterSubmit} className="space-y-6">
         <div>
           <label className="label">Dag</label>
           <div className="grid grid-cols-2 gap-3">

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import NoteBanner from "@/components/NoteBanner";
+import { blockEnterSubmit } from "@/lib/form-utils";
 import type { VisitDay } from "@/lib/week";
 
 const ROBIN_NOTE =
@@ -99,7 +100,7 @@ export default function RegisterForm({
 
       <NoteBanner note={ROBIN_NOTE} />
 
-      <form onSubmit={onSubmit} className="space-y-5">
+      <form onSubmit={onSubmit} onKeyDown={blockEnterSubmit} className="space-y-5">
         <div>
           <label className="label" htmlFor="stadpasId">Stadspas ID</label>
           {idKnown ? (

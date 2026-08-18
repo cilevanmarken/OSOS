@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { Customer, GroupView } from "@/lib/excel";
 import type { VisitDay } from "@/lib/week";
 import NoteBanner from "@/components/NoteBanner";
+import { blockEnterSubmit } from "@/lib/form-utils";
 
 export default function GroupCheckIn({
   customer,
@@ -103,7 +104,7 @@ export default function GroupCheckIn({
         </p>
       </section>
 
-      <form onSubmit={onSubmit} className="space-y-6">
+      <form onSubmit={onSubmit} onKeyDown={blockEnterSubmit} className="space-y-6">
         {otherMembers.length > 0 && (
           <div>
             <label className="label">Shopt ook voor:</label>
