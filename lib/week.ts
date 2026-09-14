@@ -6,6 +6,15 @@ export function isoWeek(date: Date = new Date()): number {
   return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
 }
 
+// The ISO week number of the week before `date`. Subtracting 7 days first makes
+// this wrap correctly across year boundaries (e.g. week 1 → 52/53 of last year),
+// which a plain `isoWeek() - 1` would not.
+export function previousIsoWeek(date: Date = new Date()): number {
+  const prev = new Date(date);
+  prev.setDate(prev.getDate() - 7);
+  return isoWeek(prev);
+}
+
 export type VisitDay = "Woensdag" | "Donderdag";
 
 export function dayForToday(date: Date = new Date()): VisitDay {

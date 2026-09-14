@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { Customer, GroupView } from "@/lib/excel";
 import type { VisitDay } from "@/lib/week";
 import NoteBanner from "@/components/NoteBanner";
+import OilLastWeekBanner from "@/components/OilLastWeekBanner";
 import { blockEnterSubmit } from "@/lib/form-utils";
 
 export default function GroupCheckIn({
@@ -91,6 +92,7 @@ export default function GroupCheckIn({
       </header>
 
       <NoteBanner note={customer.notes} />
+      <OilLastWeekBanner show={customer.hadOilLastWeek} />
 
       <section className="card mb-5">
         <p className="text-sm uppercase tracking-wide text-gray-500">

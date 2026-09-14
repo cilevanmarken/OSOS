@@ -23,7 +23,8 @@
       "Bash(grep -n 'export interface Schema$Sheet ' node_modules/@googleapis/sheets/build/v4.d.ts)",
       "Bash(sed -n '/export interface Schema\\\\$Sheet /,/^    }/p' node_modules/@googleapis/sheets/build/v4.d.ts)",
       "Bash(npx --no-install playwright --version)",
-      "Bash(grep -oE '[0-9]+$')"
+      "Bash(grep -oE '[0-9]+$')",
+      "Bash(node *)"
     ]
   }
 }

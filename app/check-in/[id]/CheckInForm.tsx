@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { Customer } from "@/lib/excel";
 import type { VisitDay } from "@/lib/week";
 import NoteBanner from "@/components/NoteBanner";
+import OilLastWeekBanner from "@/components/OilLastWeekBanner";
 import { blockEnterSubmit } from "@/lib/form-utils";
 
 export default function CheckInForm({
@@ -83,6 +84,7 @@ export default function CheckInForm({
       </header>
 
       <NoteBanner note={customer.notes} />
+      <OilLastWeekBanner show={customer.hadOilLastWeek} />
 
       <section className="card mb-5">
         <p className="text-sm uppercase tracking-wide text-gray-500">Klant</p>

@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { Customer } from "@/lib/excel";
 import type { VisitDay } from "@/lib/week";
 import NoteBanner from "@/components/NoteBanner";
+import OilLastWeekBanner from "@/components/OilLastWeekBanner";
 import { blockEnterSubmit } from "@/lib/form-utils";
 
 export default function AlreadyVisited({
@@ -122,6 +123,7 @@ export default function AlreadyVisited({
       </div>
 
       <NoteBanner note={savedNotes} />
+      <OilLastWeekBanner show={customer.hadOilLastWeek} />
 
       <section className="card mb-5">
         <h2 className="font-semibold text-gray-700 mb-3">Eerder bezoek</h2>

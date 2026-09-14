@@ -1,5 +1,5 @@
 import { readGrid, writeGrid, type Cell } from "./sheets";
-import { isoWeek, type VisitDay } from "./week";
+import { isoWeek, previousIsoWeek, type VisitDay } from "./week";
 
 export const SHEET_NAME = "klanten registratie";
 
@@ -30,6 +30,10 @@ export type Customer = {
   // A visit with 0 products and no oil does not count — the customer is free
   // to return later in the same week.
   lockedThisWeek: boolean;
+  // True when this customer received oil LAST week (the propagated "Olie" marker
+  // on their row for the previous ISO week). Purely informational — it drives a
+  // warning banner so volunteers know not to hand out oil two weeks in a row.
+  hadOilLastWeek: boolean;
 };
 
 export type GroupMember = {
@@ -162,6 +166,9 @@ function rowToCustomer(row: Row, week: number): Customer {
   const dayRaw = String(row[`Week ${week}`] ?? "").trim();
   const productsRaw = row[`Producten ${week}`];
   const oilRaw = String(row[`Olie ${week}`] ?? "").trim();
+  const prevWeek = previousIsoWeek();
+  const hadOilLastWeek =
+    String(row[`Olie ${prevWeek}`] ?? "").toLowerCase() === "ja";
   // A visit is recorded by Week X / Producten X. Olie alone is a per-groep
   // voucher marker and does not count as having physically visited.
   const hasVisit =
@@ -190,6 +197,7 @@ function rowToCustomer(row: Row, week: number): Customer {
     // Locked purely on this customer's own visit — groep membership no longer
     // affects whether an individual may shop (only the oil voucher is shared).
     lockedThisWeek: visitCounts(visit),
+    hadOilLastWeek,
   };
 }
 
