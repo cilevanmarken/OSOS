@@ -1,3 +1,5 @@
+import { previousIsoWeek } from "@/lib/week";
+
 export default function OilLastWeekBanner({ show }: { show: boolean }) {
   if (!show) return null;
   return (
@@ -6,8 +8,7 @@ export default function OilLastWeekBanner({ show }: { show: boolean }) {
         Let op: olie vorige week
       </p>
       <p className="text-gray-900 mt-1">
-        Deze klant heeft vorige week olie ontvangen en zou deze week geen olie
-        moeten krijgen.
+        Deze klant heeft vorige week (week {previousIsoWeek()}) olie ontvangen.
       </p>
     </div>
   );
