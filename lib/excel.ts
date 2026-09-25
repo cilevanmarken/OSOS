@@ -107,8 +107,32 @@ async function loadRows(title: string): Promise<{ headers: string[]; rows: Row[]
   return gridToRows(await readGrid(title));
 }
 
+// Column names are keyed by header, so reordering `headers` reorders the data
+// too (rowsToGrid maps each cell by name). We keep the customer/base columns in
+// place and lay out the weekly groups newest-first, so the most recent week sits
+// right after the customer data and older weeks trail off to the right.
+function orderHeaders(headers: string[]): string[] {
+  const weekCol = /^(Week|Producten|Olie) (\d+)$/;
+  const nonWeek: string[] = [];
+  const weeks = new Set<number>();
+  for (const h of headers) {
+    const m = h.match(weekCol);
+    if (m) weeks.add(Number(m[2]));
+    else nonWeek.push(h);
+  }
+  const weekCols: string[] = [];
+  for (const wk of [...weeks].sort((a, b) => b - a)) {
+    for (const prefix of ["Week", "Producten", "Olie"]) {
+      const name = `${prefix} ${wk}`;
+      if (headers.includes(name)) weekCols.push(name);
+    }
+  }
+  return [...nonWeek, ...weekCols];
+}
+
 async function saveRows(title: string, headers: string[], rows: Row[]): Promise<void> {
-  await writeGrid(title, rowsToGrid(headers, rows));
+  const ordered = orderHeaders(headers);
+  await writeGrid(title, rowsToGrid(ordered, rows));
 }
 
 function ensureWeekColumns(headers: string[], week: number): string[] {
