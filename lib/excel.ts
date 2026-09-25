@@ -107,16 +107,35 @@ async function loadRows(title: string): Promise<{ headers: string[]; rows: Row[]
   return gridToRows(await readGrid(title));
 }
 
+const WEEK_COLUMN = /^(Week|Producten|Olie) (\d+)$/;
+
+function isKnownColumn(h: string): boolean {
+  return (BASE_COLUMNS as readonly string[]).includes(h) || WEEK_COLUMN.test(h);
+}
+
+// Drop stray columns that aren't customer/base or weekly columns AND hold no
+// data anywhere — e.g. the "Column N" placeholders Google Sheets auto-creates for
+// empty table columns, or leftovers from manual edits. Unknown columns that do
+// carry data are kept, so we never silently discard something meaningful.
+function dropEmptyOrphanColumns(headers: string[], rows: Row[]): string[] {
+  return headers.filter((h) => {
+    if (isKnownColumn(h)) return true;
+    return rows.some((r) => {
+      const v = r[h];
+      return v !== undefined && v !== null && String(v).trim() !== "";
+    });
+  });
+}
+
 // Column names are keyed by header, so reordering `headers` reorders the data
 // too (rowsToGrid maps each cell by name). We keep the customer/base columns in
 // place and lay out the weekly groups newest-first, so the most recent week sits
 // right after the customer data and older weeks trail off to the right.
 function orderHeaders(headers: string[]): string[] {
-  const weekCol = /^(Week|Producten|Olie) (\d+)$/;
   const nonWeek: string[] = [];
   const weeks = new Set<number>();
   for (const h of headers) {
-    const m = h.match(weekCol);
+    const m = h.match(WEEK_COLUMN);
     if (m) weeks.add(Number(m[2]));
     else nonWeek.push(h);
   }
@@ -131,7 +150,7 @@ function orderHeaders(headers: string[]): string[] {
 }
 
 async function saveRows(title: string, headers: string[], rows: Row[]): Promise<void> {
-  const ordered = orderHeaders(headers);
+  const ordered = orderHeaders(dropEmptyOrphanColumns(headers, rows));
   await writeGrid(title, rowsToGrid(ordered, rows));
 }
 

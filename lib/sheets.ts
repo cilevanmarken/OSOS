@@ -83,58 +83,82 @@ async function ensureTab(title: string, headerRow: string[]): Promise<void> {
   }
 }
 
-// Overwrite a tab with the given grid, starting at A1. The app only ever adds
-// rows/columns (never removes), so a plain update never leaves stale cells.
+// Overwrite a tab with the given grid, starting at A1. Callers hand us the exact
+// column set they want; any columns that used to exist but are now gone are
+// blanked out (values.update never shrinks a row on its own), so removing or
+// reordering columns never leaves stale cells behind.
 export async function writeGrid(title: string, values: Cell[][]): Promise<void> {
   await ensureTab(title, (values[0] ?? []).map(String));
   const client = getClient();
   const id = spreadsheetId();
-  await client.spreadsheets.values.update({
-    spreadsheetId: id,
-    range: rangeFor(title, "A1"),
-    valueInputOption: "RAW",
-    requestBody: { values },
-  });
-  // If the tab is backed by a native Google Sheets Table, values.update only
-  // fills cells — it never grows the table's structural range. Resize the table
-  // so new rows (people) and new columns (weeks) become part of it.
-  await resizeTableToData(client, id, title, values);
-}
 
-// Grow the tab's Table (if any) to cover the freshly written data grid. The app
-// writes A1-anchored, so the data spans rows [0, numRows) and columns
-// [0, numCols); we keep the table's existing top-left anchor and extend its end
-// to that extent. A resize failure is logged but never fails the write — the
-// values themselves are already saved.
-async function resizeTableToData(
-  client: sheets_v4.Sheets,
-  id: string,
-  title: string,
-  values: Cell[][]
-): Promise<void> {
   const numRows = values.length;
-  const numCols = Math.max(0, ...values.map((r) => r.length));
-  if (numRows === 0 || numCols === 0) return;
+  const realCols = Math.max(0, ...values.map((r) => r.length));
 
+  // Read the tab's current width and its Table (if any) in one shot: the width
+  // tells us how far to blank out dropped columns; the Table drives the resize.
+  let sheetId: number | null = null;
+  let oldColCount = 0;
+  let table: sheets_v4.Schema$Table | undefined;
   try {
     const meta = await client.spreadsheets.get({
       spreadsheetId: id,
-      fields: "sheets(properties(sheetId,title),tables(tableId,range))",
+      fields:
+        "sheets(properties(sheetId,title,gridProperties(columnCount)),tables(tableId,range))",
     });
     const sheet = (meta.data.sheets ?? []).find(
       (s) => s.properties?.title === title
     );
-    const sheetId = sheet?.properties?.sheetId;
-    const table = (sheet?.tables ?? [])[0];
-    if (!table?.tableId || sheetId == null) return;
+    sheetId = sheet?.properties?.sheetId ?? null;
+    oldColCount = sheet?.properties?.gridProperties?.columnCount ?? 0;
+    table = (sheet?.tables ?? [])[0];
+  } catch {
+    // Metadata is best-effort; fall through to a plain write.
+  }
 
+  // Pad each row out to the previous width so columns we no longer write get
+  // overwritten with blanks instead of keeping stale values.
+  const width = Math.max(realCols, oldColCount);
+  const padded =
+    width > realCols
+      ? values.map((r) => {
+          const row = [...r];
+          while (row.length < width) row.push("");
+          return row;
+        })
+      : values;
+
+  await client.spreadsheets.values.update({
+    spreadsheetId: id,
+    range: rangeFor(title, "A1"),
+    valueInputOption: "RAW",
+    requestBody: { values: padded },
+  });
+
+  // Keep the Table (if any) covering exactly the real data — not the blank pad —
+  // so new rows/weeks join it and dropped columns fall outside it.
+  if (table?.tableId && sheetId != null && numRows > 0 && realCols > 0) {
+    await resizeTable(client, id, title, sheetId, table, numRows, realCols);
+  }
+}
+
+// Set the Table's range to exactly cover the real data (A1-anchored). A resize
+// failure is logged but never fails the write — the values are already saved.
+async function resizeTable(
+  client: sheets_v4.Sheets,
+  id: string,
+  title: string,
+  sheetId: number,
+  table: sheets_v4.Schema$Table,
+  numRows: number,
+  numCols: number
+): Promise<void> {
+  try {
     const range = table.range ?? {};
-    const startRowIndex = range.startRowIndex ?? 0;
-    const startColumnIndex = range.startColumnIndex ?? 0;
-    // Already covers the data — nothing to do.
+    // Already covers exactly the data — nothing to do.
     if (
-      startRowIndex === 0 &&
-      startColumnIndex === 0 &&
+      (range.startRowIndex ?? 0) === 0 &&
+      (range.startColumnIndex ?? 0) === 0 &&
       range.endRowIndex === numRows &&
       range.endColumnIndex === numCols
     ) {
@@ -151,8 +175,8 @@ async function resizeTableToData(
                 tableId: table.tableId,
                 range: {
                   sheetId,
-                  startRowIndex,
-                  startColumnIndex,
+                  startRowIndex: 0,
+                  startColumnIndex: 0,
                   endRowIndex: numRows,
                   endColumnIndex: numCols,
                 },
@@ -165,7 +189,7 @@ async function resizeTableToData(
     });
   } catch (err: unknown) {
     console.warn(
-      `Kon de tabel op tab "${title}" niet vergroten:`,
+      `Kon de tabel op tab "${title}" niet aanpassen:`,
       err instanceof Error ? err.message : err
     );
   }
