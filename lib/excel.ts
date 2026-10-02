@@ -3,6 +3,8 @@ import { isoWeek, previousIsoWeek, type VisitDay } from "./week";
 
 export const SHEET_NAME = "klanten registratie";
 
+const VISIT_COUNT_COLUMN = "Aantal bezoeken";
+
 const BASE_COLUMNS = [
   "Stadpas ID",
   "Voornaam",
@@ -10,6 +12,7 @@ const BASE_COLUMNS = [
   "Postcode",
   "Groep ID",
   "ID gecontroleerd",
+  VISIT_COUNT_COLUMN,
   "Notities",
 ] as const;
 
@@ -113,6 +116,19 @@ function isKnownColumn(h: string): boolean {
   return (BASE_COLUMNS as readonly string[]).includes(h) || WEEK_COLUMN.test(h);
 }
 
+// How many times the customer has physically visited so far: the number of weeks
+// with a recorded visit day. A propagated oil marker (set on groep members who
+// did not actually come) never sets a day, so it is correctly not counted.
+function countVisits(row: Row): number {
+  let n = 0;
+  for (const key of Object.keys(row)) {
+    if (!/^Week \d+$/.test(key)) continue;
+    const day = String(row[key] ?? "").trim();
+    if (day === "Woensdag" || day === "Donderdag") n++;
+  }
+  return n;
+}
+
 // Drop stray columns that aren't customer/base or weekly columns AND hold no
 // data anywhere — e.g. the "Column N" placeholders Google Sheets auto-creates for
 // empty table columns, or leftovers from manual edits. Unknown columns that do
@@ -128,28 +144,35 @@ function dropEmptyOrphanColumns(headers: string[], rows: Row[]): string[] {
 }
 
 // Column names are keyed by header, so reordering `headers` reorders the data
-// too (rowsToGrid maps each cell by name). We keep the customer/base columns in
-// place and lay out the weekly groups newest-first, so the most recent week sits
-// right after the customer data and older weeks trail off to the right.
+// too (rowsToGrid maps each cell by name). Base/customer columns always lead, in
+// their canonical BASE_COLUMNS order (added if missing), then any orphan columns
+// that carry data, then the weekly groups newest-first — so the most recent week
+// sits right after the customer data and older weeks trail off to the right.
 function orderHeaders(headers: string[]): string[] {
-  const nonWeek: string[] = [];
+  const present = new Set(headers);
+  const orphans: string[] = [];
   const weeks = new Set<number>();
   for (const h of headers) {
+    if ((BASE_COLUMNS as readonly string[]).includes(h)) continue;
     const m = h.match(WEEK_COLUMN);
     if (m) weeks.add(Number(m[2]));
-    else nonWeek.push(h);
+    else orphans.push(h);
   }
   const weekCols: string[] = [];
   for (const wk of [...weeks].sort((a, b) => b - a)) {
     for (const prefix of ["Week", "Producten", "Olie"]) {
       const name = `${prefix} ${wk}`;
-      if (headers.includes(name)) weekCols.push(name);
+      if (present.has(name)) weekCols.push(name);
     }
   }
-  return [...nonWeek, ...weekCols];
+  return [...BASE_COLUMNS, ...orphans, ...weekCols];
 }
 
 async function saveRows(title: string, headers: string[], rows: Row[]): Promise<void> {
+  // Keep the derived visit-count column in sync on every write — the whole grid
+  // is rewritten, so recomputing for all rows keeps the tally accurate even after
+  // manual edits to the week columns.
+  for (const row of rows) row[VISIT_COUNT_COLUMN] = countVisits(row);
   const ordered = orderHeaders(dropEmptyOrphanColumns(headers, rows));
   await writeGrid(title, rowsToGrid(ordered, rows));
 }
