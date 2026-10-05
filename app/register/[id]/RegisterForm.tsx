@@ -32,6 +32,7 @@ export default function RegisterForm({
   const [day, setDay] = useState<VisitDay>(defaultDay);
   const [products, setProducts] = useState("");
   const [oil, setOil] = useState(false);
+  const [kruidvat, setKruidvat] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -60,7 +61,7 @@ export default function RegisterForm({
           postcode: postcode.trim(),
           idVerified,
           notes: notes.trim(),
-          visit: { day, products: n, oil },
+          visit: { day, products: n, oil, kruidvat },
         }),
       });
       if (res.ok) {
@@ -238,6 +239,21 @@ export default function RegisterForm({
           <div>
             <p className="font-semibold">Olie ontvangen</p>
             <p className="text-sm text-gray-500">Vink aan als de klant olie meekrijgt</p>
+          </div>
+        </label>
+
+        <label className="card flex items-center gap-4 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={kruidvat}
+            onChange={(e) => setKruidvat(e.target.checked)}
+            className="w-7 h-7 accent-brand-orange"
+          />
+          <div>
+            <p className="font-semibold">Kruidvat kaart ontvangen</p>
+            <p className="text-sm text-gray-500">
+              Vink aan als de klant een Kruidvat kaart meekrijgt
+            </p>
           </div>
         </label>
 

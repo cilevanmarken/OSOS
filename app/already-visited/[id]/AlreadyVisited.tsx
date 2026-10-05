@@ -23,6 +23,7 @@ export default function AlreadyVisited({
   const [day, setDay] = useState<VisitDay>(defaultDay);
   const [products, setProducts] = useState("");
   const [oil, setOil] = useState(false);
+  const [kruidvat, setKruidvat] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -78,6 +79,7 @@ export default function AlreadyVisited({
           day,
           products: n,
           oil,
+          kruidvat,
           override: true,
         }),
       });
@@ -139,6 +141,10 @@ export default function AlreadyVisited({
           <dt className="text-gray-500">Olie</dt>
           <dd className="font-semibold text-right">
             {visit?.oil ? "Ja" : "Nee"}
+          </dd>
+          <dt className="text-gray-500">Kruidvat kaart</dt>
+          <dd className="font-semibold text-right">
+            {visit?.kruidvat ? "Ja" : "Nee"}
           </dd>
         </dl>
       </section>
@@ -239,6 +245,16 @@ export default function AlreadyVisited({
               className="w-6 h-6 accent-brand-orange"
             />
             <span>Olie ontvangen</span>
+          </label>
+
+          <label className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={kruidvat}
+              onChange={(e) => setKruidvat(e.target.checked)}
+              className="w-6 h-6 accent-brand-orange"
+            />
+            <span>Kruidvat kaart ontvangen</span>
           </label>
 
           <label className="flex items-start gap-3">

@@ -25,12 +25,24 @@ export default function GroupCheckIn({
   // Per-member selection, each toggled independently. Everyone starts
   // unchecked — the volunteer explicitly picks who the scanner also shops for.
   const [checked, setChecked] = useState<Record<string, boolean>>({});
+  // Per-member Kruidvat kaart (1 per customer per week). Only members who are
+  // getting groceries (the scanner + those checked above) are eligible.
+  const [kruidvat, setKruidvat] = useState<Record<string, boolean>>({});
 
   const [day, setDay] = useState<VisitDay>(defaultDay);
   const [products, setProducts] = useState<string>("");
   const [oil, setOil] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>("");
+
+  const scannerHasKruidvat = customer.visitThisWeek?.kruidvat === true;
+  // A member can get a Kruidvat kaart only if the scanner is shopping for them
+  // this visit and they have not already received one this week.
+  function kruidvatEligible(memberId: string): boolean {
+    const m = otherMembers.find((x) => x.id === memberId);
+    if (!m) return false;
+    return !!checked[m.id] && !m.countsThisWeek && !m.kruidvatThisWeek;
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -45,6 +57,12 @@ export default function GroupCheckIn({
         .filter((m) => checked[m.id] && !m.countsThisWeek)
         .map((m) => m.id),
     ];
+    const kruidvatIds = [
+      ...(kruidvat[scannerId] && !scannerHasKruidvat ? [scannerId] : []),
+      ...otherMembers
+        .filter((m) => kruidvat[m.id] && kruidvatEligible(m.id))
+        .map((m) => m.id),
+    ];
     setSubmitting(true);
     setError("");
     try {
@@ -57,6 +75,7 @@ export default function GroupCheckIn({
           day,
           products: n,
           oil,
+          kruidvatIds,
         }),
       });
       if (res.ok) {
@@ -128,12 +147,14 @@ export default function GroupCheckIn({
                         className="w-7 h-7 accent-brand-orange"
                         checked={!!checked[m.id] && !visited}
                         disabled={visited}
-                        onChange={(e) =>
-                          setChecked((prev) => ({
-                            ...prev,
-                            [m.id]: e.target.checked,
-                          }))
-                        }
+                        onChange={(e) => {
+                          const v = e.target.checked;
+                          setChecked((prev) => ({ ...prev, [m.id]: v }));
+                          // Giving up groceries also gives up the Kruidvat kaart.
+                          if (!v) {
+                            setKruidvat((prev) => ({ ...prev, [m.id]: false }));
+                          }
+                        }}
                       />
                       <div className="flex-1">
                         <p className="font-semibold">{m.fullName}</p>
@@ -221,6 +242,89 @@ export default function GroupCheckIn({
             </div>
           </label>
         )}
+
+        <div>
+          <label className="label">Kruidvat kaart voor:</label>
+          <ul className="space-y-2">
+            <li>
+              <label
+                className={
+                  "card flex items-center gap-4 " +
+                  (scannerHasKruidvat
+                    ? "opacity-60 cursor-not-allowed"
+                    : "cursor-pointer")
+                }
+              >
+                <input
+                  type="checkbox"
+                  className="w-7 h-7 accent-brand-orange"
+                  checked={!!kruidvat[scannerId] && !scannerHasKruidvat}
+                  disabled={scannerHasKruidvat}
+                  onChange={(e) =>
+                    setKruidvat((prev) => ({
+                      ...prev,
+                      [scannerId]: e.target.checked,
+                    }))
+                  }
+                />
+                <div className="flex-1">
+                  <p className="font-semibold">
+                    {customer.voornaam} {customer.achternaam}
+                  </p>
+                  {scannerHasKruidvat && (
+                    <p className="text-xs text-amber-700 font-semibold">
+                      Al een kaart deze week
+                    </p>
+                  )}
+                </div>
+              </label>
+            </li>
+            {otherMembers.map((m) => {
+              const eligible = kruidvatEligible(m.id);
+              const disabled = !eligible;
+              return (
+                <li key={m.id}>
+                  <label
+                    className={
+                      "card flex items-center gap-4 " +
+                      (disabled
+                        ? "opacity-60 cursor-not-allowed"
+                        : "cursor-pointer")
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      className="w-7 h-7 accent-brand-orange"
+                      checked={!!kruidvat[m.id] && eligible}
+                      disabled={disabled}
+                      onChange={(e) =>
+                        setKruidvat((prev) => ({
+                          ...prev,
+                          [m.id]: e.target.checked,
+                        }))
+                      }
+                    />
+                    <div className="flex-1">
+                      <p className="font-semibold">{m.fullName}</p>
+                      {m.kruidvatThisWeek ? (
+                        <p className="text-xs text-amber-700 font-semibold">
+                          Al een kaart deze week
+                        </p>
+                      ) : !m.countsThisWeek && !checked[m.id] ? (
+                        <p className="text-xs text-gray-500">
+                          Selecteer eerst onder “Shopt ook voor”
+                        </p>
+                      ) : null}
+                    </div>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="text-sm text-gray-500 mt-2">
+            Elke klant kan 1 Kruidvat kaart per week krijgen.
+          </p>
+        </div>
 
         {error && (
           <p className="text-red-600 text-center font-semibold">{error}</p>

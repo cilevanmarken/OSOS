@@ -46,6 +46,9 @@ export type GroupMember = {
   fullName: string;
   visitThisWeek?: VisitRecord;
   oilThisWeek: boolean;
+  // True when this member already received a Kruidvat kaart this week (1 per
+  // customer per week), so the UI can disable a second one.
+  kruidvatThisWeek: boolean;
   // True when this member's visit counts (products > 0 or oil). A 0-product,
   // no-oil visit does not count, so the member may still be checked in.
   countsThisWeek: boolean;
@@ -64,6 +67,7 @@ export type VisitRecord = {
   day: VisitDay | "";
   products: number | null;
   oil: boolean;
+  kruidvat: boolean;
 };
 
 export type Row = Record<string, string | number | boolean | null | undefined>;
@@ -110,7 +114,7 @@ async function loadRows(title: string): Promise<{ headers: string[]; rows: Row[]
   return gridToRows(await readGrid(title));
 }
 
-const WEEK_COLUMN = /^(Week|Producten|Olie) (\d+)$/;
+const WEEK_COLUMN = /^(Week|Producten|Olie|Kruidvat) (\d+)$/;
 
 function isKnownColumn(h: string): boolean {
   return (BASE_COLUMNS as readonly string[]).includes(h) || WEEK_COLUMN.test(h);
@@ -160,7 +164,7 @@ function orderHeaders(headers: string[]): string[] {
   }
   const weekCols: string[] = [];
   for (const wk of [...weeks].sort((a, b) => b - a)) {
-    for (const prefix of ["Week", "Producten", "Olie"]) {
+    for (const prefix of ["Week", "Producten", "Olie", "Kruidvat"]) {
       const name = `${prefix} ${wk}`;
       if (present.has(name)) weekCols.push(name);
     }
@@ -178,7 +182,12 @@ async function saveRows(title: string, headers: string[], rows: Row[]): Promise<
 }
 
 function ensureWeekColumns(headers: string[], week: number): string[] {
-  const cols = [`Week ${week}`, `Producten ${week}`, `Olie ${week}`];
+  const cols = [
+    `Week ${week}`,
+    `Producten ${week}`,
+    `Olie ${week}`,
+    `Kruidvat ${week}`,
+  ];
   const next = [...headers];
   for (const c of cols) {
     if (!next.includes(c)) next.push(c);
@@ -232,6 +241,7 @@ function rowToCustomer(row: Row, week: number): Customer {
   const dayRaw = String(row[`Week ${week}`] ?? "").trim();
   const productsRaw = row[`Producten ${week}`];
   const oilRaw = String(row[`Olie ${week}`] ?? "").trim();
+  const kruidvatRaw = String(row[`Kruidvat ${week}`] ?? "").trim();
   const prevWeek = previousIsoWeek();
   const hadOilLastWeek =
     String(row[`Olie ${prevWeek}`] ?? "").toLowerCase() === "ja";
@@ -248,6 +258,7 @@ function rowToCustomer(row: Row, week: number): Customer {
             ? null
             : Number(productsRaw),
         oil: oilRaw.toLowerCase() === "ja",
+        kruidvat: kruidvatRaw.toLowerCase() === "ja",
       }
     : undefined;
 
@@ -271,6 +282,8 @@ function rowToGroupMember(row: Row, week: number): GroupMember {
   const c = rowToCustomer(row, week);
   const oilThisWeek =
     String(row[`Olie ${week}`] ?? "").toLowerCase() === "ja";
+  const kruidvatThisWeek =
+    String(row[`Kruidvat ${week}`] ?? "").toLowerCase() === "ja";
   return {
     id: c.id,
     voornaam: c.voornaam,
@@ -278,6 +291,7 @@ function rowToGroupMember(row: Row, week: number): GroupMember {
     fullName: `${c.voornaam} ${c.achternaam}`.trim(),
     visitThisWeek: c.visitThisWeek,
     oilThisWeek,
+    kruidvatThisWeek,
     // Only taking products uses up a member's slot. Oil (which is stamped on the
     // whole groep) must not disable a member who has not shopped yet.
     countsThisWeek: visitCounts(c.visitThisWeek),
@@ -424,6 +438,7 @@ export type LogVisitInput = {
   day: VisitDay;
   products: number;
   oil: boolean;
+  kruidvat: boolean;
   override?: boolean;
   notes?: string;
 };
@@ -460,6 +475,7 @@ export async function logVisit(input: LogVisitInput): Promise<LogVisitResult> {
           day: "",
           products: null,
           oil: false,
+          kruidvat: false,
         },
         customer: existingCustomer,
       } as const;
@@ -495,6 +511,9 @@ export async function logVisit(input: LogVisitInput): Promise<LogVisitResult> {
     row[`Week ${week}`] = input.day;
     row[`Producten ${week}`] = input.products;
     row[`Olie ${week}`] = input.oil ? "Ja" : "";
+    // A Kruidvat kaart is per customer (1 per week), not a shared groep voucher,
+    // so it is written only on this customer's row — never propagated.
+    row[`Kruidvat ${week}`] = input.kruidvat ? "Ja" : "";
     if (input.notes !== undefined) {
       row["Notities"] = input.notes;
     }
@@ -555,6 +574,9 @@ export type LogGroupVisitInput = {
   day: VisitDay;
   products: number;
   oil: boolean;
+  // Ids (scanner and/or members) who should receive a Kruidvat kaart this visit.
+  // Only ids that are actually logged this round get the marker.
+  kruidvatIds: string[];
 };
 
 export type LogGroupVisitResult =
@@ -625,10 +647,15 @@ export async function logGroupVisit(
     // few members (e.g. 5 products over 2 people → 3 and 2).
     const shares = splitEvenly(input.products, rowsToLog.length);
     const loggedIds: string[] = [];
+    const kruidvatSet = new Set(input.kruidvatIds.map((s) => s.trim()));
     rowsToLog.forEach((r, i) => {
+      const memberId = String(r["Stadpas ID"] ?? "").trim();
       r[`Week ${week}`] = input.day;
       r[`Producten ${week}`] = shares[i];
-      loggedIds.push(String(r["Stadpas ID"] ?? "").trim());
+      // Per-customer Kruidvat kaart (1 per week): mark only the members the
+      // scanner picked a card for, and only among those actually logged now.
+      r[`Kruidvat ${week}`] = kruidvatSet.has(memberId) ? "Ja" : "";
+      loggedIds.push(memberId);
     });
 
     // The oil voucher is shared per groep, so stamp Olie = "Ja" on every member

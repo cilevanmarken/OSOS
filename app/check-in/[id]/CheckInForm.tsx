@@ -20,6 +20,7 @@ export default function CheckInForm({
   const [day, setDay] = useState<VisitDay>(defaultDay);
   const [products, setProducts] = useState<string>("");
   const [oil, setOil] = useState(false);
+  const [kruidvat, setKruidvat] = useState(false);
   const [notes, setNotes] = useState<string>(customer.notes);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>("");
@@ -44,6 +45,7 @@ export default function CheckInForm({
           day,
           products: n,
           oil,
+          kruidvat,
           ...(notesChanged ? { notes } : {}),
         }),
       });
@@ -144,6 +146,21 @@ export default function CheckInForm({
           <div>
             <p className="font-semibold text-lg">Olie ontvangen</p>
             <p className="text-sm text-gray-500">Vink aan als de klant olie meekrijgt</p>
+          </div>
+        </label>
+
+        <label className="card flex items-center gap-4 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={kruidvat}
+            onChange={(e) => setKruidvat(e.target.checked)}
+            className="w-7 h-7 accent-brand-orange"
+          />
+          <div>
+            <p className="font-semibold text-lg">Kruidvat kaart ontvangen</p>
+            <p className="text-sm text-gray-500">
+              Vink aan als de klant een Kruidvat kaart meekrijgt
+            </p>
           </div>
         </label>
 

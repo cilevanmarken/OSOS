@@ -10,6 +10,7 @@ type Body = {
   day?: VisitDay;
   products?: number;
   oil?: boolean;
+  kruidvatIds?: string[];
 };
 
 export async function POST(req: Request) {
@@ -27,6 +28,9 @@ export async function POST(req: Request) {
   const memberIds = Array.isArray(body.memberIds)
     ? body.memberIds.filter((s): s is string => typeof s === "string")
     : [];
+  const kruidvatIds = Array.isArray(body.kruidvatIds)
+    ? body.kruidvatIds.filter((s): s is string => typeof s === "string")
+    : [];
 
   if (!scannerId || (day !== "Woensdag" && day !== "Donderdag")) {
     return NextResponse.json({ error: "MISSING_FIELDS" }, { status: 400 });
@@ -41,6 +45,7 @@ export async function POST(req: Request) {
     day,
     products,
     oil,
+    kruidvatIds,
   });
 
   if (result.ok) {
