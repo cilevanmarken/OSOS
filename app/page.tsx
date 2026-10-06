@@ -43,6 +43,13 @@ export default async function Home() {
         <Link href="/search" className="btn-ghost w-full">
           Zoek op naam
         </Link>
+
+        <Link
+          href="/stadspas-hulp"
+          className="text-center text-brand-blue font-semibold py-2 hover:underline"
+        >
+          Scant de stadspas niet?
+        </Link>
       </div>
 
       <footer className="mt-10 text-center text-xs text-gray-400">
