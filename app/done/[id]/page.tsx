@@ -40,7 +40,6 @@ export default async function DonePage({
               <p className="text-gray-500 mt-1">
                 {customer.visitThisWeek.products ?? 0} producten
                 {customer.visitThisWeek.oil ? " · olie" : ""}
-                {customer.visitThisWeek.kruidvat ? " · Kruidvat kaart" : ""}
               </p>
             )}
           </>

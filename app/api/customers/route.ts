@@ -15,7 +15,6 @@ type Body = {
     day: VisitDay;
     products: number;
     oil: boolean;
-    kruidvat: boolean;
   };
 };
 
@@ -53,7 +52,6 @@ export async function POST(req: Request) {
         day: body.visit.day,
         products: body.visit.products,
         oil: body.visit.oil,
-        kruidvat: body.visit.kruidvat,
         override: true,
       });
       if (result.ok) {

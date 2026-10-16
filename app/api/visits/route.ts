@@ -9,7 +9,6 @@ type Body = {
   day?: VisitDay;
   products?: number;
   oil?: boolean;
-  kruidvat?: boolean;
   override?: boolean;
   notes?: string;
 };
@@ -26,7 +25,6 @@ export async function POST(req: Request) {
   const day = body.day;
   const products = Number(body.products);
   const oil = !!body.oil;
-  const kruidvat = !!body.kruidvat;
 
   if (!id || (day !== "Woensdag" && day !== "Donderdag")) {
     return NextResponse.json({ error: "MISSING_FIELDS" }, { status: 400 });
@@ -40,7 +38,6 @@ export async function POST(req: Request) {
     day,
     products,
     oil,
-    kruidvat,
     override: !!body.override,
     notes: typeof body.notes === "string" ? body.notes : undefined,
   });
